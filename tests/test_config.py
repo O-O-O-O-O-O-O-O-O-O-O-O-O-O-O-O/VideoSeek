@@ -324,6 +324,7 @@ class ConfigMigrationTests(unittest.TestCase):
                 json.dumps(
                     {
                         "prefer_gpu": "false",
+                        "gpu_probe_unknown_keep_gpu": "true",
                         "auto_cleanup_missing_files": "true",
                     },
                     ensure_ascii=False,
@@ -336,7 +337,40 @@ class ConfigMigrationTests(unittest.TestCase):
                 loaded = config_module.load_config()
 
             self.assertFalse(loaded["prefer_gpu"])
+            self.assertTrue(loaded["gpu_probe_unknown_keep_gpu"])
             self.assertTrue(loaded["auto_cleanup_missing_files"])
+
+    def test_load_config_backfills_frame_neighbor_rerank_defaults(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            user_config_file = root / "config.json"
+            user_config_file.write_text(
+                json.dumps(
+                    {
+                        "search_top_k": 30,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(config_module, "CONFIG_FILE", str(user_config_file)):
+                loaded = config_module.load_config()
+
+            self.assertEqual(loaded["search_top_k"], 30)
+            self.assertEqual(
+                loaded["frame_neighbor_rerank_enabled"],
+                config_module.DEFAULT_CONFIG["frame_neighbor_rerank_enabled"],
+            )
+            self.assertEqual(
+                loaded["frame_neighbor_rerank_top_n"],
+                config_module.DEFAULT_CONFIG["frame_neighbor_rerank_top_n"],
+            )
+            self.assertEqual(
+                loaded["frame_neighbor_rerank_window"],
+                config_module.DEFAULT_CONFIG["frame_neighbor_rerank_window"],
+            )
 
     def test_default_config_includes_sampling_rules_template(self):
         self.assertEqual(config_module.DEFAULT_CONFIG["sampling_fps_rules"], "0-10m=2; 10m-60m=1; 60m-=0.5")

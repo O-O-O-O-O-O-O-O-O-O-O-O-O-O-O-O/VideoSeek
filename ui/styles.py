@@ -23,6 +23,16 @@ QWidget {
     background: __NOTICE_BG__;
     border: 1px solid __NOTICE_LINE__;
 }
+#RuntimeBanner {
+    background: __WARN_SOFT__;
+    border: 1px solid __WARN__;
+    border-radius: 12px;
+}
+#RuntimeBannerText {
+    color: __WARN__;
+    font-size: 12px;
+    font-weight: 700;
+}
 #NoticeTitle {
     color: __NOTICE_TEXT__;
     font-size: 14px;
@@ -105,6 +115,17 @@ QPushButton {
 QPushButton:hover {
     background: __BUTTON_SOFT_HOVER__;
 }
+QPushButton:pressed {
+    background: __TRACK__;
+    border-color: __LINE_STRONG__;
+    padding-top: 9px;
+    padding-bottom: 7px;
+}
+QPushButton:disabled {
+    color: __MUTED__;
+    border-color: __LINE__;
+    background: __FIELD__;
+}
 #PrimaryButton {
     background: __ACCENT__;
     border-color: __ACCENT__;
@@ -112,6 +133,10 @@ QPushButton:hover {
 }
 #PrimaryButton:hover {
     background: __ACCENT_HOVER__;
+}
+#PrimaryButton:pressed {
+    background: __ACCENT__;
+    border-color: __LINE_STRONG__;
 }
 #UpdateButton {
     background: __ACCENT_SOFT__;
@@ -121,6 +146,10 @@ QPushButton:hover {
 }
 #UpdateButton:hover {
     background: __BUTTON_SOFT_HOVER__;
+}
+#UpdateButton:pressed {
+    background: __ACCENT_SOFT__;
+    border-color: __ACCENT__;
 }
 #WarningButton {
     background: __WARN_SOFT__;
@@ -139,6 +168,10 @@ QPushButton:hover {
 }
 #SearchButton:hover {
     background: __SUCCESS_HOVER__;
+}
+#SearchButton:pressed {
+    background: __SUCCESS__;
+    border-color: __LINE_STRONG__;
 }
 #MobileBridgeToggle {
     min-width: 52px;
@@ -200,6 +233,36 @@ QPushButton:hover {
 #GhostButton {
     background: transparent;
 }
+#GhostButton:pressed {
+    background: __BUTTON_SOFT_HOVER__;
+    border-color: __LINE_STRONG__;
+}
+#AccentGhostButton {
+    background: transparent;
+    border-color: __ACCENT__;
+    color: __ACCENT__;
+    font-weight: 700;
+}
+#AccentGhostButton:hover {
+    background: __ACCENT_SOFT__;
+}
+#AccentGhostButton:pressed {
+    background: __ACCENT_SOFT__;
+    border-color: __ACCENT__;
+}
+#SuccessGhostButton {
+    background: transparent;
+    border-color: __SUCCESS__;
+    color: __SUCCESS__;
+    font-weight: 700;
+}
+#SuccessGhostButton:hover {
+    background: __SUCCESS_SOFT__;
+}
+#SuccessGhostButton:pressed {
+    background: __SUCCESS_SOFT__;
+    border-color: __SUCCESS__;
+}
 #DangerGhostButton {
     background: transparent;
     border-color: __DANGER__;
@@ -208,6 +271,10 @@ QPushButton:hover {
 }
 #DangerGhostButton:hover {
     background: __DANGER_SOFT__;
+}
+#DangerGhostButton:pressed {
+    background: __DANGER_SOFT__;
+    border-color: __DANGER__;
 }
 #ToolbarDivider {
     color: __LINE__;
@@ -248,6 +315,14 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
 }
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
     border: 1px solid __ACCENT__;
+}
+QComboBox QAbstractItemView {
+    background: __PANEL__;
+    color: __HEADLINE__;
+    border: 1px solid __LINE__;
+    selection-background-color: __ACCENT_SOFT__;
+    selection-color: __HEADLINE__;
+    outline: 0;
 }
 QLabel[settingLabel="true"] {
     color: __HEADLINE__;
@@ -290,6 +365,24 @@ QSpinBox[settingField="true"]:focus, QDoubleSpinBox[settingField="true"]:focus, 
 QComboBox[settingField="true"]::drop-down {
     border: none;
     width: 24px;
+}
+QComboBox[settingField="true"] QAbstractItemView {
+    background: __PANEL__;
+    color: __HEADLINE__;
+    border: 1px solid __LINE__;
+    border-radius: 10px;
+    padding: 4px;
+    outline: 0;
+    selection-background-color: __ACCENT_SOFT__;
+    selection-color: __HEADLINE__;
+}
+QComboBox[settingField="true"] QAbstractItemView::item {
+    min-height: 30px;
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+QComboBox[settingField="true"] QAbstractItemView::item:hover {
+    background: __BUTTON_SOFT_HOVER__;
 }
 QSpinBox[settingField="true"]::up-button, QDoubleSpinBox[settingField="true"]::up-button, QSpinBox[settingField="true"]::down-button, QDoubleSpinBox[settingField="true"]::down-button {
     border: none;

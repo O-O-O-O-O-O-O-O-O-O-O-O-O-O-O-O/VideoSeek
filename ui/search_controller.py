@@ -3,7 +3,7 @@ import time
 from PySide6.QtCore import QObject, Qt
 from PySide6.QtWidgets import QLabel
 
-from src.core.clip_embedding import get_engine_runtime_warning
+from src.core.clip_embedding import get_engine_runtime_status, get_engine_runtime_warning
 from ui.table_views import populate_result_table
 from ui.threading_utils import shutdown_thread
 from ui.workers import SearchWarmupWorker, SearchWorker, ThumbLoader
@@ -88,6 +88,7 @@ class SearchController(QObject):
 
     def _finish_warmup(self):
         self.warmup_worker = None
+        self.parent_window._update_inference_backend_hint()
 
     def _handle_search_error(self, error_text):
         self.parent_window._update_inference_backend_hint()
@@ -96,6 +97,10 @@ class SearchController(QObject):
         if runtime_warning:
             if not self._gpu_warning_shown:
                 self._gpu_warning_shown = True
+                runtime_status = get_engine_runtime_status()
+                runtime_detail = self.parent_window._build_runtime_diagnostics_detail(runtime_status)
+                if runtime_detail:
+                    runtime_warning = f"{runtime_warning}\n\n{runtime_detail}"
                 self.parent_window.show_info_dialog(
                     self.parent_window.texts["warning_title"],
                     self.parent_window.texts["gpu_runtime_unavailable"].format(detail=runtime_warning),

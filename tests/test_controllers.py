@@ -499,6 +499,16 @@ class SearchControllerTests(unittest.TestCase):
         mock_worker_cls.assert_called_once_with()
         worker.start.assert_called_once()
 
+    def test_finish_warmup_refreshes_runtime_backend_hint(self):
+        parent = _make_parent_window()
+        controller = SearchController(parent)
+        controller.warmup_worker = MagicMock()
+
+        controller._finish_warmup()
+
+        self.assertIsNone(controller.warmup_worker)
+        parent._update_inference_backend_hint.assert_called_once()
+
 
 class PreviewControllerTests(unittest.TestCase):
     @patch("ui.preview_controller.PreviewWarmupWorker")

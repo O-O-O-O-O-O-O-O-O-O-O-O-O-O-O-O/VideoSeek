@@ -2,6 +2,7 @@
 import unittest
 import os
 import zipfile
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -29,6 +30,7 @@ faiss_module.normalize_L2 = getattr(faiss_module, "normalize_L2", lambda *_args,
 from src.services import model_service
 from src.services import indexing_service, search_service
 from src.services import library_service, remote_library_service
+from src.services import model_package_service
 from src.workflows import update_video
 from src import utils
 
@@ -376,6 +378,7 @@ class IndexingServiceTests(unittest.TestCase):
             ],
         )
 
+    @patch("src.services.indexing_service.get_video_duration_seconds", return_value=60.0)
     @patch("src.services.indexing_service.generate_vectors_and_index_for_video", return_value=([], [], None))
     @patch("src.services.indexing_service.os.path.getmtime", return_value=123.0)
     @patch("src.services.indexing_service._is_valid_video_source", return_value=True)
@@ -384,6 +387,7 @@ class IndexingServiceTests(unittest.TestCase):
         _mock_stream,
         _mock_getmtime,
         _mock_generate,
+        _mock_duration,
     ):
         lib_files = {}
 
@@ -654,6 +658,39 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertEqual(result[-2], ["D:\\videos\\clip.mp4"])
         self.assertFalse(result[-1])
         self.assertEqual(persist_calls, ["saved"])
+
+    @patch("src.services.indexing_service.load_video_chunks_by_id", return_value=[])
+    @patch("src.services.indexing_service.collect_existing_chunks", return_value=([], [], []))
+    @patch("src.services.indexing_service.collect_existing_vectors")
+    @patch("src.services.indexing_service.process_single_video")
+    @patch("src.services.indexing_service.cleanup_invalid_library_files", return_value=iter(()))
+    @patch("src.services.indexing_service.discover_video_files", return_value=["D:\\videos\\clip.mp4"])
+    @patch("src.services.indexing_service.os.path.exists", return_value=True)
+    def test_scan_target_libraries_skips_reused_rows_when_existing_assets_preloaded(
+        self,
+        _mock_exists,
+        _mock_discover,
+        _mock_cleanup_invalid,
+        mock_process_single_video,
+        mock_collect_vectors,
+        _mock_collect_chunks,
+        _mock_load_chunks,
+    ):
+        reused_vector = np.array([[1.0]], dtype=np.float32)
+        mock_collect_vectors.return_value = ([reused_vector], [0.0], ["D:\\videos\\clip.mp4"])
+        mock_process_single_video.return_value = (reused_vector, [0.0], False, False)
+        meta = {"libraries": {"D:\\videos": {"files": {"clip.mp4": {"vid": "vid_a"}}}}}
+
+        result = indexing_service.scan_target_libraries(
+            meta,
+            {},
+            lambda path: "vid_a",
+            include_existing_assets=True,
+        )
+
+        self.assertEqual(len(result[0]), 1)
+        self.assertEqual(result[1], [0.0])
+        self.assertEqual(result[2], ["D:\\videos\\clip.mp4"])
 
     @patch("src.services.indexing_service.os.remove")
     @patch("src.services.indexing_service.os.path.exists")
@@ -1007,12 +1044,12 @@ class SearchServiceTests(unittest.TestCase):
 
     @patch("src.services.search_service.load_search_assets")
     @patch("src.services.search_service.build_query_vector")
-    @patch("src.services.search_service.search_vector")
+    @patch("src.services.search_service._search_frame_results_with_ids")
     @patch("src.services.search_service.load_config")
     def test_run_search_returns_empty_when_index_missing(
         self,
         mock_load_config,
-        mock_search_vector,
+        mock_search_results_with_ids,
         mock_build_query_vector,
         mock_load_assets,
     ):
@@ -1023,10 +1060,117 @@ class SearchServiceTests(unittest.TestCase):
 
         self.assertEqual(result, [])
         mock_build_query_vector.assert_not_called()
-        mock_search_vector.assert_not_called()
+        mock_search_results_with_ids.assert_not_called()
+
+    @patch("src.services.search_service.get_active_model_profile")
+    def test_check_asset_profile_compatibility_rejects_mismatched_model_id(self, mock_get_profile):
+        mock_get_profile.return_value = {"id": "siglip2_default", "provider": "siglip2_onnx"}
+        asset_info = {
+            "embedding_spec": {
+                "model_id": "clip_onnx_default",
+                "provider": "clip_onnx",
+                "embedding_space": "clip_onnx_default",
+                "dimension": 512,
+                "metric": "ip",
+            },
+            "index_dim": 512,
+        }
+
+        with self.assertRaises(RuntimeError) as ctx:
+            search_service._check_asset_profile_compatibility({}, asset_info, asset_label="frame")
+
+        self.assertIn("active profile", str(ctx.exception).lower())
+
+    @patch("src.services.search_service.get_active_model_profile")
+    def test_check_asset_profile_compatibility_ignores_missing_embedding_spec(self, mock_get_profile):
+        mock_get_profile.return_value = {"id": "clip_onnx_default", "provider": "clip_onnx"}
+        asset_info = {"embedding_spec": None, "index_dim": 512}
+
+        search_service._check_asset_profile_compatibility({}, asset_info, asset_label="frame")
+
+    def test_apply_frame_neighbor_rerank_disabled_by_default(self):
+        class DummyIndex:
+            def reconstruct(self, idx):
+                return np.array([1.0, 0.0], dtype=np.float32)
+
+        results = [(1.0, 1.0, 0.8, "a.mp4")]
+        frame_ids = [1]
+        query_vector = np.array([[1.0, 0.0]], dtype=np.float32)
+        timestamps = np.array([0.0, 1.0, 2.0], dtype=np.float32)
+        paths = np.array(["a.mp4", "a.mp4", "a.mp4"], dtype=object)
+
+        reranked = search_service._apply_frame_neighbor_rerank(
+            results,
+            frame_ids,
+            query_vector,
+            DummyIndex(),
+            timestamps,
+            paths,
+            config={},
+        )
+        self.assertEqual(reranked, results)
+
+    def test_apply_frame_neighbor_rerank_snaps_to_better_neighbor(self):
+        class DummyIndex:
+            def __init__(self):
+                self._vectors = {
+                    0: np.array([0.6, 0.8], dtype=np.float32),
+                    1: np.array([0.8, 0.2], dtype=np.float32),
+                    2: np.array([1.0, 0.0], dtype=np.float32),
+                }
+
+            def reconstruct(self, idx):
+                return self._vectors[idx]
+
+        results = [(1.0, 1.0, 0.8, "a.mp4")]
+        frame_ids = [1]
+        query_vector = np.array([[1.0, 0.0]], dtype=np.float32)
+        timestamps = np.array([0.0, 1.0, 2.0], dtype=np.float32)
+        paths = np.array(["a.mp4", "a.mp4", "a.mp4"], dtype=object)
+        config = {
+            "frame_neighbor_rerank_enabled": True,
+            "frame_neighbor_rerank_top_n": 5,
+            "frame_neighbor_rerank_window": 2,
+        }
+
+        reranked = search_service._apply_frame_neighbor_rerank(
+            results,
+            frame_ids,
+            query_vector,
+            DummyIndex(),
+            timestamps,
+            paths,
+            config=config,
+        )
+        self.assertEqual(reranked[0][0], 2.0)
+        self.assertEqual(reranked[0][1], 2.0)
+        self.assertGreater(reranked[0][2], results[0][2])
 
 
 class UtilsTests(unittest.TestCase):
+    def test_save_vectors_persists_embedding_spec(self):
+        with tempfile.NamedTemporaryFile(suffix=".npy", delete=False) as handle:
+            vector_file = handle.name
+        try:
+            vectors = np.array([[1.0, 0.0]], dtype=np.float32)
+            timestamps = np.array([0.0], dtype=np.float32)
+            embedding_spec = {
+                "model_id": "clip_onnx_default",
+                "provider": "clip_onnx",
+                "embedding_space": "clip_onnx_default",
+                "dimension": 512,
+                "metric": "ip",
+            }
+
+            from src.core.faiss_index import load_vectors, save_vectors
+
+            save_vectors(vectors, timestamps, vector_file, embedding_spec=embedding_spec)
+            payload = load_vectors(vector_file)
+            self.assertEqual(payload.get("embedding_spec"), embedding_spec)
+        finally:
+            if os.path.exists(vector_file):
+                os.remove(vector_file)
+
     def test_resolve_sampling_fps_returns_fixed_fps_by_default(self):
         result = utils.resolve_sampling_fps(
             duration_sec=600,
@@ -1096,6 +1240,22 @@ class UtilsTests(unittest.TestCase):
 
         self.assertFalse(reversed_valid)
         self.assertFalse(overlap_valid)
+
+    def test_validate_sampling_fps_rules_full_coverage_requires_tail_and_no_gaps(self):
+        missing_tail_valid, _ = utils.validate_sampling_fps_rules_full_coverage("0-10m=2; 10m-60m=1")
+        gapped_valid, _ = utils.validate_sampling_fps_rules_full_coverage("0-10m=2; 20m-=1")
+        complete_valid, _ = utils.validate_sampling_fps_rules_full_coverage("0-10m=2; 10m-60m=1; 60m-=0.5")
+
+        self.assertFalse(missing_tail_valid)
+        self.assertFalse(gapped_valid)
+        self.assertTrue(complete_valid)
+
+    def test_ensure_sampling_fps_rules_open_tail_auto_appends_default_tail(self):
+        updated = utils.ensure_sampling_fps_rules_open_tail("0-10m=2; 10m-60m=1", default_tail_fps=0.5)
+        unchanged = utils.ensure_sampling_fps_rules_open_tail("0-10m=2; 10m-=1", default_tail_fps=0.5)
+
+        self.assertEqual(updated, "0-10m=2; 10m-60m=1; 60m-=0.5")
+        self.assertEqual(unchanged, "0-10m=2; 10m-=1")
 
     def test_resolve_resource_path_prefers_configured_directory(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1679,7 +1839,17 @@ class RemoteLibraryDetailServiceTests(unittest.TestCase):
 
     @patch("src.services.remote_library_service._write_build_report", return_value="data/remote/build_report.json")
     @patch("src.services.remote_library_service.get_remote_library_status")
-    @patch("src.services.remote_library_service.np.save")
+    @patch("src.services.remote_library_service.save_remote_vector_payload")
+    @patch(
+        "src.services.remote_library_service.get_active_embedding_spec",
+        return_value={
+            "model_id": "clip_onnx_default",
+            "provider": "clip_onnx",
+            "embedding_space": "clip_onnx_default",
+            "dimension": 512,
+            "metric": "ip",
+        },
+    )
     @patch("src.services.remote_library_service.create_clip_index")
     @patch("src.services.remote_library_service.get_clip_embeddings_batch")
     @patch("src.services.remote_library_service._extract_frames")
@@ -1696,7 +1866,8 @@ class RemoteLibraryDetailServiceTests(unittest.TestCase):
         mock_extract_frames,
         mock_embeddings,
         mock_create_index,
-        _mock_save,
+        _mock_get_embedding_spec,
+        mock_save_remote_payload,
         mock_status,
         _mock_write_report,
     ):
@@ -1732,6 +1903,8 @@ class RemoteLibraryDetailServiceTests(unittest.TestCase):
         )
 
         self.assertAlmostEqual(mock_extract_frames.call_args.kwargs["fps"], 0.5)
+        payload = mock_save_remote_payload.call_args.args[1]
+        self.assertEqual(payload["embedding_spec"]["model_id"], "clip_onnx_default")
 
     @patch("src.services.remote_library_service._load_existing_payload")
     @patch("src.services.remote_library_service.os.path.exists", return_value=True)
@@ -1790,7 +1963,60 @@ class MigratedStorageWorkflowTests(unittest.TestCase):
             self.assertFalse(index_file.exists())
 
 
+class ModelPackageServiceTests(unittest.TestCase):
+    def test_import_updates_legacy_default_profile_with_empty_variant(self):
+        with tempfile.TemporaryDirectory() as model_root:
+            manifest_dir = Path(model_root) / "openai-clip" / "vit-base-patch32"
+            manifest_dir.mkdir(parents=True)
+            (manifest_dir / "clip_visual.onnx").write_bytes(b"dummy")
+            (manifest_dir / "model_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "id": "clip_onnx_default",
+                        "provider": "clip_onnx",
+                        "variant": "vit-base-patch32",
+                        "display_name": "CLIP ONNX",
+                        "required_files": ["clip_visual.onnx"],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            config = {
+                "models": {
+                    "active_profile": "clip_onnx_default",
+                    "profiles": [
+                        {
+                            "id": "clip_onnx_default",
+                            "provider": "clip_onnx",
+                            "display_name": "CLIP ONNX",
+                            "enabled": True,
+                            "runtime": {
+                                "prefer_gpu": True,
+                                "model_dir": model_root,
+                                "model_variant": "",
+                            },
+                            "files": {"visual_model": "clip_visual.onnx"},
+                        }
+                    ],
+                }
+            }
+
+            with (
+                patch("src.services.model_package_service.load_config", return_value=config),
+                patch("src.services.model_package_service.save_config") as mock_save_config,
+                patch("src.services.model_package_service.get_config_schema_version", return_value=2),
+            ):
+                result = model_package_service.import_model_packages(model_root)
+
+            self.assertEqual(result["imported"], 0)
+            self.assertEqual(result["updated"], 1)
+            self.assertEqual(result["errors"], [])
+            self.assertTrue(mock_save_config.called)
+            self.assertEqual(config["models"]["profiles"][0]["runtime"]["model_variant"], "vit-base-patch32")
+
+
 if __name__ == "__main__":
     unittest.main()
-import sys
-import types

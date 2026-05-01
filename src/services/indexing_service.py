@@ -4,9 +4,11 @@ import os
 import numpy as np
 
 from src.app.logging_utils import get_logger
-from src.core.faiss_index import atomic_save_numpy, create_clip_index, load_clip_index, load_vectors, save_vectors
+from src.core.faiss_index import atomic_save_numpy, create_clip_index, load_clip_index
 from src.core.semantic_chunking import build_semantic_chunks, chunk_config_payload, unpack_chunks
 from src.core.clip_embedding import generate_vectors_and_index_for_video
+from src.storage.asset_store import load_vector_payload, save_vector_payload
+from src.storage.config_store import get_active_embedding_spec, get_global_model_asset_paths, get_local_model_asset_dirs
 from src.utils import canonicalize_library_path, ensure_folder_exists, get_video_duration_seconds, has_readable_video_stream
 
 VIDEO_EXTS = (".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm")
@@ -133,7 +135,8 @@ def _emit_issue(issue_callback, library_path, video_rel_path, abs_path, action, 
 
 
 def _ensure_video_index_file(video_id, vectors, config):
-    index_file = os.path.join(config["index_dir"], f"{video_id}_index.faiss")
+    model_dirs = get_local_model_asset_dirs(config=config)
+    index_file = os.path.join(model_dirs["index_dir"], f"{video_id}_index.faiss")
     if os.path.exists(index_file):
         return False
     try:
@@ -146,8 +149,9 @@ def _ensure_video_index_file(video_id, vectors, config):
 
 
 def load_video_vectors_by_id(video_id, config):
-    vector_file = os.path.join(config["vector_dir"], f"{video_id}_vectors.npy")
-    data = load_vectors(vector_file)
+    model_dirs = get_local_model_asset_dirs(config=config)
+    vector_file = os.path.join(model_dirs["vector_dir"], f"{video_id}_vectors.npy")
+    data = load_vector_payload(vector_file)
     if isinstance(data, dict):
         vectors = data.get("vector")
         timestamps = data.get("timestamps")
@@ -158,8 +162,9 @@ def load_video_vectors_by_id(video_id, config):
 
 
 def load_video_chunks_by_id(video_id, config):
-    vector_file = os.path.join(config["vector_dir"], f"{video_id}_vectors.npy")
-    data = load_vectors(vector_file)
+    model_dirs = get_local_model_asset_dirs(config=config)
+    vector_file = os.path.join(model_dirs["vector_dir"], f"{video_id}_vectors.npy")
+    data = load_vector_payload(vector_file)
     if not isinstance(data, dict):
         return []
 
@@ -192,7 +197,14 @@ def _ensure_chunk_payload(data, vectors, timestamps, vector_file, config):
         min_chunk_size=current_chunk_config["min_chunk_size"],
         similarity_mode=current_chunk_config["similarity_mode"],
     )
-    save_vectors(vectors, timestamps, vector_file, chunks=chunks, chunk_config=current_chunk_config)
+    save_vector_payload(
+        vectors,
+        timestamps,
+        vector_file,
+        chunks=chunks,
+        chunk_config=current_chunk_config,
+        embedding_spec=get_active_embedding_spec(config=config),
+    )
     return chunks
 
 
@@ -367,8 +379,9 @@ def process_single_video(abs_path, rel_path, lib_files, config, get_video_id, li
                 return vectors, timestamps, metadata_updated, False
 
         logger.info("Indexing video %s", os.path.basename(abs_path))
+        model_dirs = get_local_model_asset_dirs(config=config)
         vectors, timestamps, _ = generate_vectors_and_index_for_video(
-            abs_path, video_id, config["index_dir"], config["vector_dir"]
+            abs_path, video_id, model_dirs["index_dir"], model_dirs["vector_dir"]
         )
         if not _has_usable_vectors(vectors, timestamps):
             failure_reason = _classify_sync_failure_reason(abs_path, vectors, timestamps)
@@ -449,8 +462,9 @@ def scan_target_libraries(
     for video_id in list(cleanup_invalid_library_files(meta, config, target_lib, issue_callback=issue_callback)):
         if video_id:
             search_assets_changed = True
-            vector_dir = config.get("vector_dir", "")
-            index_dir = config.get("index_dir", "")
+            model_dirs = get_local_model_asset_dirs(config=config)
+            vector_dir = model_dirs.get("vector_dir", "")
+            index_dir = model_dirs.get("index_dir", "")
             vector_file = os.path.join(vector_dir, f"{video_id}_vectors.npy") if vector_dir else ""
             index_file = os.path.join(index_dir, f"{video_id}_index.faiss") if index_dir else ""
             for path in (vector_file, index_file):
@@ -515,6 +529,11 @@ def scan_target_libraries(
             if vectors is None:
                 failed_videos.append(abs_path)
                 continue
+            # When existing assets are preloaded, unchanged videos may return
+            # reusable vectors here. Avoid appending them again, otherwise
+            # frame/chunk search payloads get duplicated rows.
+            if include_existing_assets and not file_search_assets_changed:
+                continue
             all_vectors.append(vectors)
             all_timestamps.extend(timestamps)
             all_paths.extend([abs_path] * len(timestamps))
@@ -538,40 +557,45 @@ def scan_target_libraries(
 
 
 def clear_global_index(config):
+    global_paths = get_global_model_asset_paths(config=config)
     for path in [
-        config["cross_index_file"],
-        config["cross_vector_file"],
-        config["cross_chunk_index_file"],
-        config["cross_chunk_vector_file"],
+        global_paths["cross_index_file"],
+        global_paths["cross_vector_file"],
+        global_paths["cross_chunk_index_file"],
+        global_paths["cross_chunk_vector_file"],
     ]:
         if os.path.exists(path):
             os.remove(path)
 
 
 def merge_and_save_all_vectors(all_vectors, all_timestamps, all_paths, config):
-    ensure_folder_exists(config["cross_index_file"])
-    ensure_folder_exists(config["cross_vector_file"])
+    global_paths = get_global_model_asset_paths(config=config)
+    ensure_folder_exists(global_paths["cross_index_file"])
+    ensure_folder_exists(global_paths["cross_vector_file"])
 
-    create_clip_index(all_vectors, config["cross_index_file"])
+    create_clip_index(all_vectors, global_paths["cross_index_file"])
     payload = {
         "format_version": 2,
         "timestamps": all_timestamps,
         "paths": all_paths,
+        "embedding_spec": get_active_embedding_spec(config=config),
     }
-    atomic_save_numpy(config["cross_vector_file"], payload)
+    atomic_save_numpy(global_paths["cross_vector_file"], payload)
 
 
 def merge_and_save_all_chunks(all_chunk_vectors, all_chunk_ranges, all_chunk_paths, config):
-    ensure_folder_exists(config["cross_chunk_index_file"])
-    ensure_folder_exists(config["cross_chunk_vector_file"])
+    global_paths = get_global_model_asset_paths(config=config)
+    ensure_folder_exists(global_paths["cross_chunk_index_file"])
+    ensure_folder_exists(global_paths["cross_chunk_vector_file"])
 
-    create_clip_index(all_chunk_vectors, config["cross_chunk_index_file"])
+    create_clip_index(all_chunk_vectors, global_paths["cross_chunk_index_file"])
     payload = {
         "format_version": 2,
         "ranges": np.asarray(all_chunk_ranges, dtype="float32"),
         "paths": all_chunk_paths,
+        "embedding_spec": get_active_embedding_spec(config=config),
     }
-    atomic_save_numpy(config["cross_chunk_vector_file"], payload)
+    atomic_save_numpy(global_paths["cross_chunk_vector_file"], payload)
 
 
 def build_global_index(
@@ -596,4 +620,5 @@ def build_global_index(
         chunk_vector_stack = np.vstack(all_chunk_vectors).astype("float32")
         merge_and_save_all_chunks(chunk_vector_stack, all_chunk_ranges, all_chunk_paths, config)
     gc.collect()
-    return vector_stack, timestamp_array, np.array(all_paths), load_clip_index(config["cross_index_file"])
+    global_paths = get_global_model_asset_paths(config=config)
+    return vector_stack, timestamp_array, np.array(all_paths), load_clip_index(global_paths["cross_index_file"])

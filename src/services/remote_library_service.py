@@ -12,6 +12,8 @@ import numpy as np
 from src.app.config import get_data_storage_paths, load_config
 from src.core.clip_embedding import get_clip_embeddings_batch
 from src.core.faiss_index import create_clip_index
+from src.storage.asset_store import load_remote_vector_payload, save_remote_vector_payload
+from src.storage.config_store import get_active_embedding_spec, get_remote_model_asset_paths
 from src.services.remote_link_precheck_service import (
     build_existing_source_candidates as _build_existing_source_candidates,
     build_precheck_source_candidates as _build_precheck_source_candidates,
@@ -25,9 +27,10 @@ ProgressCallback = Callable[[int, str], None]
 
 def get_remote_library_paths():
     config = load_config()
+    remote_paths = get_remote_model_asset_paths(config=config)
     return {
-        "index_file": config.get("remote_index_file", ""),
-        "vector_file": config.get("remote_vector_file", ""),
+        "index_file": remote_paths["remote_index_file"],
+        "vector_file": remote_paths["remote_vector_file"],
     }
 
 
@@ -242,8 +245,9 @@ def build_remote_library_from_links(
         "paths": np.asarray(all_paths, dtype=object),
         "source_links": np.asarray(all_source_links, dtype=object),
         "titles": np.asarray(all_titles, dtype=object),
+        "embedding_spec": get_active_embedding_spec(config=config),
     }
-    np.save(vector_file, payload)
+    save_remote_vector_payload(vector_file, payload)
     _emit(progress_callback, 100, "Remote library build completed")
 
     status = get_remote_library_status()
@@ -462,14 +466,7 @@ def _load_yt_dlp():
 
 
 def _load_existing_payload(path):
-    data = np.load(path, allow_pickle=True).item()
-    return {
-        "vector": np.asarray(data.get("vector", np.empty((0, 0), dtype=np.float32)), dtype=np.float32),
-        "timestamps": [float(value) for value in data.get("timestamps", [])],
-        "paths": [str(value) for value in data.get("paths", [])],
-        "source_links": [str(value) for value in data.get("source_links", [])],
-        "titles": [str(value) for value in data.get("titles", [])],
-    }
+    return load_remote_vector_payload(path)
 
 
 def _build_existing_keys(paths, timestamps):

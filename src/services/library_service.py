@@ -1,8 +1,10 @@
 import os
 
 from src.app.config import load_config
-from src.core.faiss_index import load_clip_index, load_vectors
-from src.utils import canonicalize_library_path, load_meta, save_meta
+from src.core.faiss_index import load_clip_index
+from src.storage.asset_store import load_model_metadata, load_vector_payload, save_model_metadata
+from src.storage.config_store import get_local_model_asset_dirs
+from src.utils import canonicalize_library_path
 
 GLOBAL_INDEX_STATE_FRESH = "fresh"
 GLOBAL_INDEX_STATE_STALE = "stale"
@@ -29,18 +31,18 @@ def _paths_overlap(path_a, path_b):
 
 def list_libraries():
     config = load_config()
-    meta = load_meta(config["meta_file"])
+    meta = load_model_metadata(config=config)
     libraries = meta.get("libraries", {})
     normalized = _normalize_library_map(libraries)
     if normalized != libraries:
         meta["libraries"] = normalized
-        save_meta(meta, config["meta_file"])
+        save_model_metadata(meta, config=config)
     return normalized
 
 
 def get_global_index_state():
     config = load_config()
-    meta = load_meta(config["meta_file"])
+    meta = load_model_metadata(config=config)
     state = _normalize_global_index_state(meta.get("global_index_state", GLOBAL_INDEX_STATE_FRESH))
     if not state:
         return GLOBAL_INDEX_STATE_FRESH
@@ -71,10 +73,10 @@ def set_global_index_state(state, meta=None):
     if meta is not None:
         return _set_global_index_state_on_meta(meta, state)
     config = load_config()
-    meta = load_meta(config["meta_file"])
+    meta = load_model_metadata(config=config)
     if not _set_global_index_state_on_meta(meta, state):
         return False
-    save_meta(meta, config["meta_file"])
+    save_model_metadata(meta, config=config)
     return True
 
 
@@ -100,7 +102,7 @@ def list_partial_libraries(include_offline=False):
 
 def add_library(path):
     config = load_config()
-    meta = load_meta(config["meta_file"])
+    meta = load_model_metadata(config=config)
     meta["libraries"] = _normalize_library_map(meta.get("libraries", {}))
     normalized_path = canonicalize_library_path(path)
 
@@ -117,13 +119,13 @@ def add_library(path):
             }
 
     meta["libraries"][normalized_path] = {"files": {}, "last_scan": "", "index_state": "pending"}
-    save_meta(meta, config["meta_file"])
+    save_model_metadata(meta, config=config)
     return {"added": True, "reason": "", "path": normalized_path}
 
 
 def remove_library(path, delete_video_data):
     config = load_config()
-    meta = load_meta(config["meta_file"])
+    meta = load_model_metadata(config=config)
     meta["libraries"] = _normalize_library_map(meta.get("libraries", {}))
     normalized_path = canonicalize_library_path(path)
     library = meta["libraries"].get(normalized_path)
@@ -151,7 +153,7 @@ def remove_library(path, delete_video_data):
     del meta["libraries"][normalized_path]
     if library_changed_search_assets:
         mark_global_index_stale(meta=meta)
-    save_meta(meta, config["meta_file"])
+    save_model_metadata(meta, config=config)
 
     for video_id in removable_video_ids:
         delete_video_data(video_id, config)
@@ -160,8 +162,9 @@ def remove_library(path, delete_video_data):
 
 
 def _library_changes_search_assets(library, config):
-    vector_dir = str(config.get("vector_dir", "")).strip()
-    index_dir = str(config.get("index_dir", "")).strip()
+    model_dirs = get_local_model_asset_dirs(config=config)
+    vector_dir = str(model_dirs.get("vector_dir", "")).strip()
+    index_dir = str(model_dirs.get("index_dir", "")).strip()
     for info in library.get("files", {}).values():
         video_id = str(info.get("vid", "")).strip()
         if not video_id:
@@ -180,7 +183,7 @@ def _read_vector_health(vector_file):
     if not os.path.exists(vector_file):
         return False, False
     try:
-        data = load_vectors(vector_file)
+        data = load_vector_payload(vector_file)
     except Exception:
         return True, False
     if not isinstance(data, dict):
@@ -224,8 +227,9 @@ def _effective_asset_state(info, source_exists, vector_exists, vector_ok, index_
 def list_local_vector_details(validate_contents=False):
     config = load_config()
     libraries = list_libraries()
-    vector_dir = os.path.normpath(config.get("vector_dir", ""))
-    index_dir = os.path.normpath(config.get("index_dir", ""))
+    model_dirs = get_local_model_asset_dirs(config=config)
+    vector_dir = os.path.normpath(model_dirs["vector_dir"])
+    index_dir = os.path.normpath(model_dirs["index_dir"])
     entries = []
 
     for library_path, library_data in libraries.items():

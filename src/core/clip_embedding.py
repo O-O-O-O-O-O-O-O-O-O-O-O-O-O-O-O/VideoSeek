@@ -13,20 +13,28 @@ import onnxruntime as ort
 from src.app.config import load_config
 from src.app.logging_utils import get_logger
 from src.core.extract_frames import stream_frames_with_ffmpeg
-from src.core.faiss_index import create_clip_index, save_vectors
+from src.core.faiss_index import create_clip_index
 from src.core.semantic_chunking import build_semantic_chunks, chunk_config_payload
+from src.storage.asset_store import save_vector_payload
+from src.storage.config_store import (
+    get_active_embedding_spec,
+    get_active_model_profile,
+    get_active_model_resource_dir,
+    get_effective_prefer_gpu,
+)
 from src.core.tokenizer import tokenize
 from src.utils import ensure_folder_exists, ensure_model_files, free_memory, measure_time
 
 logger = get_logger("clip_embedding")
 _GPU_PROBE_CACHE = None
+_HARD_GPU_RUNTIME_ISSUES = {"windows", "windows_version", "directml", "directx", "msvc"}
 
 
 class CLIPOnnxEngine:
     def __init__(self):
         runtime_config = load_config()
-        config_prefer_gpu = runtime_config.get("prefer_gpu", True)
-        runtime_plan = prepare_inference_runtime(prefer_gpu=config_prefer_gpu)
+        config_prefer_gpu = get_effective_prefer_gpu(config=runtime_config)
+        runtime_plan = prepare_inference_runtime(prefer_gpu=config_prefer_gpu, provider="clip_onnx")
         prefer_gpu = runtime_plan["effective_prefer_gpu"]
         providers = ["CPUExecutionProvider"]
         if prefer_gpu:
@@ -55,8 +63,10 @@ class CLIPOnnxEngine:
         self.embedding_batch_size = _resolve_embedding_batch_size(runtime_config)
         self.runtime_warning = runtime_plan["warning"]
         self.runtime_issue = runtime_plan["issue"]
+        self.runtime_diagnostics = dict(runtime_plan.get("diagnostics") or {})
         if prefer_gpu and not self.using_gpu and not self.runtime_warning:
-            self.runtime_issue = detect_gpu_runtime_issue()
+            self.runtime_diagnostics = _build_gpu_runtime_diagnostics()
+            self.runtime_issue = self.runtime_diagnostics.get("issue", "unknown")
             self.runtime_warning = (
                 "GPU execution is unavailable. ONNX Runtime fell back to CPU. "
                 "Verify that onnxruntime-directml is installed and that DirectML / DirectX 12 is available."
@@ -220,7 +230,16 @@ def get_engine():
     global engine
     if engine is None:
         logger.info("Inference engine is not initialized; creating a new runtime instance")
-        engine = CLIPOnnxEngine()
+        config = load_config()
+        profile = get_active_model_profile(config=config)
+        provider = str(profile.get("provider", "") or "").strip()
+        if provider == "siglip2_onnx":
+            from src.core.siglip_provider_draft import SigLIP2OnnxEngine
+
+            resource_dir = get_active_model_resource_dir(config=config)
+            engine = SigLIP2OnnxEngine(resource_dir)
+        else:
+            engine = CLIPOnnxEngine()
     return engine
 
 
@@ -239,7 +258,9 @@ def get_engine_runtime_warning():
 
 def get_engine_runtime_status():
     if engine is None:
-        prefer_gpu = load_config().get("prefer_gpu", True)
+        config = load_config()
+        prefer_gpu = get_effective_prefer_gpu(config=config)
+        provider = str(get_active_model_profile(config=config).get("provider", "") or "").strip()
         if not prefer_gpu:
             return {
                 "initialized": True,
@@ -247,16 +268,27 @@ def get_engine_runtime_status():
                 "backend": "CPU",
                 "warning": "",
                 "issue": "",
+                "diagnostics": {},
+            }
+        if provider != "clip_onnx":
+            return {
+                "initialized": False,
+                "prefer_gpu": prefer_gpu,
+                "backend": "",
+                "warning": "",
+                "issue": "",
+                "diagnostics": {},
             }
         probe = dict(_GPU_PROBE_CACHE) if isinstance(_GPU_PROBE_CACHE, dict) else None
         if prefer_gpu and probe:
-            if probe.get("ok"):
+            if probe.get("ok") or not _should_disable_gpu_for_probe_issue(probe, config=config):
                 return {
                     "initialized": True,
                     "prefer_gpu": prefer_gpu,
                     "backend": "GPU",
-                    "warning": "",
-                    "issue": "",
+                    "warning": "" if probe.get("ok") else _build_gpu_probe_soft_warning(probe.get("detail")),
+                    "issue": "" if probe.get("ok") else probe.get("issue", ""),
+                    "diagnostics": dict(probe.get("diagnostics") or {}),
                 }
             return {
                 "initialized": True,
@@ -264,6 +296,7 @@ def get_engine_runtime_status():
                 "backend": "CPU",
                 "warning": _build_gpu_runtime_warning(probe.get("detail")),
                 "issue": probe.get("issue", ""),
+                "diagnostics": dict(probe.get("diagnostics") or {}),
             }
         return {
             "initialized": False,
@@ -271,6 +304,7 @@ def get_engine_runtime_status():
             "backend": "",
             "warning": "",
             "issue": "",
+            "diagnostics": {},
         }
 
     return {
@@ -279,6 +313,7 @@ def get_engine_runtime_status():
         "backend": engine.backend_label,
         "warning": engine.runtime_warning.strip(),
         "issue": engine.runtime_issue,
+        "diagnostics": dict(getattr(engine, "runtime_diagnostics", {}) or {}),
     }
 
 
@@ -289,8 +324,15 @@ def reset_engine():
     _GPU_PROBE_CACHE = None
 
 
-def prepare_inference_runtime(prefer_gpu=None):
-    configured_prefer_gpu = load_config().get("prefer_gpu", True) if prefer_gpu is None else bool(prefer_gpu)
+def prepare_inference_runtime(prefer_gpu=None, provider=None):
+    runtime_config = load_config()
+    configured_prefer_gpu = get_effective_prefer_gpu(config=runtime_config) if prefer_gpu is None else bool(prefer_gpu)
+    resolved_provider = str(provider or "").strip()
+    if not resolved_provider:
+        try:
+            resolved_provider = str(get_active_model_profile(config=runtime_config).get("provider", "") or "").strip()
+        except Exception:
+            resolved_provider = "clip_onnx"
     logger.info("Preparing inference runtime: configured_prefer_gpu=%s", configured_prefer_gpu)
     if not configured_prefer_gpu:
         logger.info("Inference runtime preparation selected CPU because GPU preference is disabled")
@@ -299,6 +341,15 @@ def prepare_inference_runtime(prefer_gpu=None):
             "effective_prefer_gpu": False,
             "warning": "",
             "issue": "",
+            "diagnostics": {},
+        }
+    if resolved_provider != "clip_onnx":
+        return {
+            "configured_prefer_gpu": configured_prefer_gpu,
+            "effective_prefer_gpu": True,
+            "warning": "",
+            "issue": "",
+            "diagnostics": {},
         }
 
     if _is_gpu_probe_child():
@@ -307,6 +358,7 @@ def prepare_inference_runtime(prefer_gpu=None):
             "effective_prefer_gpu": True,
             "warning": "",
             "issue": "",
+            "diagnostics": {},
         }
 
     probe = _run_gpu_runtime_probe_once()
@@ -317,6 +369,22 @@ def prepare_inference_runtime(prefer_gpu=None):
             "effective_prefer_gpu": True,
             "warning": "",
             "issue": "",
+            "diagnostics": dict(probe.get("diagnostics") or {}),
+        }
+
+    if not _should_disable_gpu_for_probe_issue(probe, config=runtime_config):
+        warning = _build_gpu_probe_soft_warning(probe["detail"])
+        logger.warning(
+            "GPU runtime probe was inconclusive; keeping DirectML enabled for this run. issue=%s detail=%s",
+            probe["issue"],
+            probe["detail"],
+        )
+        return {
+            "configured_prefer_gpu": configured_prefer_gpu,
+            "effective_prefer_gpu": True,
+            "warning": warning,
+            "issue": probe["issue"],
+            "diagnostics": dict(probe.get("diagnostics") or {}),
         }
 
     warning = _build_gpu_runtime_warning(probe["detail"])
@@ -330,6 +398,7 @@ def prepare_inference_runtime(prefer_gpu=None):
         "effective_prefer_gpu": False,
         "warning": warning,
         "issue": probe["issue"],
+        "diagnostics": dict(probe.get("diagnostics") or {}),
     }
 
 
@@ -356,10 +425,17 @@ def _probe_gpu_runtime_subprocess():
             "ok": False,
             "issue": "unknown",
             "detail": "Python executable is unavailable for GPU runtime probing.",
+            "diagnostics": {"probe_stage": "bootstrap", "failure_kind": "probe_command_unavailable"},
         }
 
     env = os.environ.copy()
     env["VIDEOSEEK_GPU_PROBE_CHILD"] = "1"
+    windows_no_window_kwargs = {}
+    if os.name == "nt":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        windows_no_window_kwargs["startupinfo"] = startupinfo
+        windows_no_window_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     logger.info("Starting GPU runtime probe subprocess: command=%s", command)
     try:
         result = subprocess.run(
@@ -368,20 +444,28 @@ def _probe_gpu_runtime_subprocess():
             text=True,
             timeout=25,
             env=env,
+            **windows_no_window_kwargs,
         )
     except subprocess.TimeoutExpired:
         logger.warning("GPU runtime probe subprocess timed out after 25s")
         return {
             "ok": False,
-            "issue": "unknown",
+            "issue": "probe_timeout",
             "detail": "GPU runtime probe timed out.",
+            "diagnostics": {"probe_stage": "subprocess", "failure_kind": "probe_timeout", "timeout_seconds": 25},
         }
     except Exception as exc:
         logger.exception("GPU runtime probe subprocess failed to start")
         return {
             "ok": False,
-            "issue": "unknown",
+            "issue": "probe_launch_failed",
             "detail": str(exc),
+            "diagnostics": {
+                "probe_stage": "subprocess",
+                "failure_kind": "probe_launch_failed",
+                "probe_exception_type": exc.__class__.__name__,
+                "probe_exception_message": str(exc),
+            },
         }
 
     payload = _parse_gpu_probe_payload(result.stdout)
@@ -398,6 +482,7 @@ def _probe_gpu_runtime_subprocess():
             "ok": True,
             "issue": "",
             "detail": "",
+            "diagnostics": dict(payload.get("diagnostics") or {}),
         }
 
     issue = payload.get("issue") or "unknown"
@@ -406,6 +491,7 @@ def _probe_gpu_runtime_subprocess():
         "ok": False,
         "issue": issue,
         "detail": detail,
+        "diagnostics": dict(payload.get("diagnostics") or {}),
     }
 
 
@@ -493,34 +579,81 @@ def _run_isolated_gpu_probe():
             "visual": visual_session.get_providers(),
             "text": text_session.get_providers(),
         }
+        diagnostics = _build_gpu_runtime_diagnostics()
+        diagnostics["probe_stage"] = "provider_activation"
+        diagnostics["active_providers"] = dict(active_providers)
         logger.info("GPU probe child initialized sessions with providers: visual=%s text=%s", active_providers["visual"], active_providers["text"])
         using_gpu = all("DmlExecutionProvider" in provider_list for provider_list in active_providers.values())
         if not using_gpu:
-            issue = detect_gpu_runtime_issue()
+            if "DmlExecutionProvider" not in active_providers["visual"]:
+                issue = "visual_provider_not_activated"
+            elif "DmlExecutionProvider" not in active_providers["text"]:
+                issue = "text_provider_not_activated"
+            else:
+                issue = diagnostics.get("issue") or "provider_not_activated"
+            diagnostics["failure_kind"] = issue
             logger.warning("GPU probe child did not activate DirectML provider: issue=%s", issue or "unknown")
             return {
                 "ok": False,
                 "issue": issue or "unknown",
                 "detail": "DirectML provider was not activated during GPU runtime probe.",
+                "diagnostics": diagnostics,
             }
 
         dummy_image = np.zeros((1, 3, 224, 224), dtype=np.float32)
-        visual_session.run(None, {"input": dummy_image})
+        try:
+            visual_session.run(None, {"input": dummy_image})
+        except Exception as exc:
+            diagnostics["probe_stage"] = "visual_inference"
+            diagnostics["failure_kind"] = "visual_probe_failed"
+            diagnostics["probe_exception_type"] = exc.__class__.__name__
+            diagnostics["probe_exception_message"] = str(exc)
+            logger.exception("GPU probe child failed during visual DirectML validation")
+            return {
+                "ok": False,
+                "issue": "visual_probe_failed",
+                "detail": str(exc),
+                "diagnostics": diagnostics,
+            }
         dummy_tokens = tokenize(["gpu probe"]).astype(np.int32)
-        text_session.run(None, {"input": dummy_tokens})
+        try:
+            text_session.run(None, {"input": dummy_tokens})
+        except Exception as exc:
+            diagnostics["probe_stage"] = "text_inference"
+            diagnostics["failure_kind"] = "text_probe_failed"
+            diagnostics["probe_exception_type"] = exc.__class__.__name__
+            diagnostics["probe_exception_message"] = str(exc)
+            logger.exception("GPU probe child failed during text DirectML validation")
+            return {
+                "ok": False,
+                "issue": "text_probe_failed",
+                "detail": str(exc),
+                "diagnostics": diagnostics,
+            }
         logger.info("GPU probe child completed DirectML validation successfully")
+        diagnostics.pop("probe_stage", None)
+        diagnostics.pop("failure_kind", None)
+        diagnostics.pop("probe_exception_type", None)
+        diagnostics.pop("probe_exception_message", None)
         return {
             "ok": True,
             "issue": "",
             "detail": "",
+            "diagnostics": diagnostics,
         }
     except Exception as exc:
-        issue = detect_gpu_runtime_issue()
+        diagnostics = _build_gpu_runtime_diagnostics()
+        diagnostics["probe_stage"] = "session_init"
+        diagnostics["failure_kind"] = "session_init_failed"
+        diagnostics["probe_exception_type"] = exc.__class__.__name__
+        diagnostics["probe_exception_message"] = str(exc)
+        issue = diagnostics.get("issue") or "session_init_failed"
         logger.exception("GPU probe child failed during DirectML validation")
         return {
             "ok": False,
             "issue": issue or "unknown",
             "detail": str(exc),
+            "diagnostics": diagnostics,
         }
 
 
@@ -528,6 +661,16 @@ def _build_gpu_runtime_warning(detail):
     base = (
         "GPU execution is unavailable. ONNX Runtime fell back to CPU. "
         "Verify that onnxruntime-directml is installed and that DirectML / DirectX 12 is available."
+    )
+    detail_text = str(detail or "").strip()
+    if not detail_text:
+        return base
+    return f"{base} Detail: {detail_text}"
+
+
+def _build_gpu_probe_soft_warning(detail):
+    base = (
+        "GPU runtime probe was inconclusive. VideoSeek will still try DirectML for this run and fall back to CPU only if actual inference fails."
     )
     detail_text = str(detail or "").strip()
     if not detail_text:
@@ -555,6 +698,14 @@ def _format_exception_detail(exc):
     return exc.__class__.__name__
 
 
+def _should_disable_gpu_for_probe_issue(probe, config=None):
+    issue = str((probe or {}).get("issue") or "").strip().lower()
+    if issue == "unknown":
+        runtime_config = dict(config or load_config())
+        return not bool(runtime_config.get("gpu_probe_unknown_keep_gpu", False))
+    return issue in _HARD_GPU_RUNTIME_ISSUES
+
+
 def _resolve_embedding_batch_size(config=None):
     runtime_config = dict(config or load_config())
     try:
@@ -565,27 +716,81 @@ def _resolve_embedding_batch_size(config=None):
 
 
 def detect_gpu_runtime_issue():
+    return _build_gpu_runtime_diagnostics().get("issue", "unknown")
+
+
+def _build_gpu_runtime_diagnostics():
+    diagnostics = {
+        "issue": "unknown",
+        "os_name": os.name,
+        "platform_release": platform.release(),
+        "available_providers": _get_available_provider_names(),
+        "missing_dlls": [],
+        "loaded_dlls": [],
+        "missing_msvc_dlls": [],
+        "windows_build": None,
+    }
     if not _is_windows():
-        return "windows"
+        diagnostics["issue"] = "windows"
+        return diagnostics
     if not _is_windows_10_1903_or_newer():
-        return "windows_version"
+        diagnostics["issue"] = "windows_version"
+        diagnostics["windows_build"] = _get_windows_build_number()
+        return diagnostics
     if not _is_directml_provider_available():
-        return "directml"
-    if not _can_load_windows_dll("DirectML.dll") or not _can_load_windows_dll("d3d12.dll"):
-        return "directx"
+        diagnostics["issue"] = "directml"
+        return diagnostics
+    diagnostics["windows_build"] = _get_windows_build_number()
 
-    available_names = _collect_available_dll_names()
-    if not _has_any_prefix(available_names, ("vcruntime140", "vcruntime140_1", "msvcp140")):
-        return "msvc"
-    return "unknown"
+    required_runtime_dlls = ["DirectML.dll", "d3d12.dll"]
+    for dll_name in required_runtime_dlls:
+        if _can_load_windows_dll(dll_name):
+            diagnostics["loaded_dlls"].append(dll_name)
+        else:
+            diagnostics["missing_dlls"].append(dll_name)
+    if diagnostics["missing_dlls"]:
+        diagnostics["issue"] = "directx"
+        return diagnostics
+
+    required_msvc_dlls = ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"]
+    for dll_name in required_msvc_dlls:
+        if _can_load_windows_dll(dll_name):
+            diagnostics["loaded_dlls"].append(dll_name)
+        else:
+            diagnostics["missing_msvc_dlls"].append(dll_name)
+    if diagnostics["missing_msvc_dlls"]:
+        diagnostics["issue"] = "msvc"
+        return diagnostics
+    return diagnostics
 
 
-def _build_session_options(prefer_gpu):
+def _get_available_provider_names():
+    try:
+        providers = ort.get_available_providers()
+    except AttributeError:
+        return []
+    return [str(provider) for provider in providers]
+
+
+def _get_windows_build_number():
+    if not _is_windows():
+        return None
+    try:
+        return int(sys.getwindowsversion().build)
+    except AttributeError:
+        return None
+
+
+def _build_session_options(prefer_gpu, disable_optimizations=False):
     session_options = ort.SessionOptions()
     if prefer_gpu:
         # DirectML sessions require sequential execution and are more stable with memory pattern disabled.
         session_options.enable_mem_pattern = False
         session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    if disable_optimizations:
+        # Some third-party exported graphs can fail specific ORT graph fusions
+        # on certain builds. Keep runtime stable by disabling graph optimizations.
+        session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
     return session_options
 
 
@@ -722,7 +927,14 @@ def generate_vectors_and_index_for_video(video_path, video_id, index_dir, vector
     index_file = os.path.normpath(os.path.join(index_dir, f"{video_id}_index.faiss"))
 
     ensure_folder_exists(vector_file)
-    save_vectors(vectors, timestamps, vector_file, chunks=chunks, chunk_config=chunk_config)
+    save_vector_payload(
+        vectors,
+        timestamps,
+        vector_file,
+        chunks=chunks,
+        chunk_config=chunk_config,
+        embedding_spec=get_active_embedding_spec(config=config),
+    )
 
     ensure_folder_exists(index_file)
     index = create_clip_index(vectors, index_file)

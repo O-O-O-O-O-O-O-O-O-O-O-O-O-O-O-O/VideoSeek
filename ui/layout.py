@@ -4,18 +4,18 @@ from PySide6.QtGui import QGuiApplication
 
 WINDOW_SIZES = {
     "main": {
-        "preferred": QSize(1280, 820),
-        "minimum": QSize(960, 640),
+        "preferred": QSize(1360, 850),
+        "minimum": QSize(1080, 680),
         "screen_margin": 72,
     },
     "about_dialog": {
-        "preferred": QSize(420, 520),
-        "minimum": QSize(360, 420),
+        "preferred": QSize(620, 700),
+        "minimum": QSize(520, 560),
         "screen_margin": 96,
     },
     "notice_dialog": {
-        "preferred": QSize(450, 340),
-        "minimum": QSize(360, 280),
+        "preferred": QSize(620, 500),
+        "minimum": QSize(560, 420),
         "screen_margin": 96,
     },
     "message_dialog": {
@@ -30,6 +30,7 @@ COMPONENT_SIZES = {
     "sidebar_action_height": 36,
     "image_drop_min_height": 260,
     "preview_host_min_height": 300,
+    "link_query_preview_min_height": 210,
     "result_table_min_height": 520,
     "progress_bar_height": 18,
     "progress_bar_min_width": 260,

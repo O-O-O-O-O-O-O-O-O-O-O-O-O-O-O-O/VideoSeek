@@ -125,8 +125,10 @@ def sync_ffmpeg_path_to_config():
 def resolve_model_dir_info():
     try:
         from src.app.config import load_config
+        from src.storage.config_store import get_effective_model_dir
 
-        configured_model_dir = str(load_config().get("model_dir", "") or "").strip()
+        config = load_config()
+        configured_model_dir = str(get_effective_model_dir(config=config) or "").strip()
         if configured_model_dir:
             return os.path.normpath(configured_model_dir), "configured"
     except Exception:
@@ -137,15 +139,63 @@ def resolve_model_dir_info():
 
 def sync_model_dir_to_config():
     from src.app.config import load_config, save_config
+    from src.storage.config_store import get_active_model_profile, get_effective_model_dir
 
     config = load_config()
-    configured_model_dir = str(config.get("model_dir", "") or "").strip()
+    configured_model_dir = str(get_effective_model_dir(config=config) or "").strip()
+    top_level_model_dir = str(config.get("model_dir", "") or "").strip()
     if configured_model_dir:
         normalized_dir = os.path.normpath(configured_model_dir)
-        if normalized_dir != configured_model_dir:
+        if not os.path.isdir(normalized_dir) and top_level_model_dir:
+            top_level_normalized_dir = os.path.normpath(top_level_model_dir)
+            if os.path.isdir(top_level_normalized_dir):
+                # Compatibility self-heal: if runtime.model_dir is stale after a
+                # manual move, prefer the valid top-level model_dir and sync it
+                # back to the active profile to avoid fallback loading failures.
+                normalized_dir = top_level_normalized_dir
+        needs_save = False
+        if str(config.get("model_dir", "") or "").strip() != normalized_dir:
             config["model_dir"] = normalized_dir
+            needs_save = True
+        profile = get_active_model_profile(config=config)
+        if profile:
+            models = config.setdefault("models", {})
+            profiles = models.setdefault("profiles", [])
+            active_id = str(models.get("active_profile", "") or "").strip()
+            for idx, item in enumerate(profiles):
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("id", "") or "").strip() != active_id:
+                    continue
+                runtime = dict(item.get("runtime", {}) or {})
+                if str(runtime.get("model_dir", "") or "").strip() != normalized_dir:
+                    runtime["model_dir"] = normalized_dir
+                    item["runtime"] = runtime
+                    profiles[idx] = item
+                    needs_save = True
+                break
+        if needs_save:
             save_config(config)
-        return normalized_dir
+        if os.path.isdir(normalized_dir):
+            return normalized_dir
+        logger.warning("Configured model_dir is missing on disk; resetting to default: %s", normalized_dir)
+        config["model_dir"] = ""
+        profile = get_active_model_profile(config=config)
+        if profile:
+            models = config.setdefault("models", {})
+            profiles = models.setdefault("profiles", [])
+            active_id = str(models.get("active_profile", "") or "").strip()
+            for idx, item in enumerate(profiles):
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("id", "") or "").strip() != active_id:
+                    continue
+                runtime = dict(item.get("runtime", {}) or {})
+                runtime["model_dir"] = ""
+                item["runtime"] = runtime
+                profiles[idx] = item
+                break
+        save_config(config)
 
     resolved_dir, _ = resolve_model_dir_info()
     if not resolved_dir:
@@ -179,7 +229,38 @@ def resolve_resource_path(relative_path, configured_base_dir=""):
 
 
 def get_model_path(filename):
-    return resolve_resource_path(os.path.join("models", filename), get_configured_model_dir())
+    """Resolve a model asset path with stale runtime.model_dir compatibility fallback."""
+    from src.app.config import load_config
+    from src.storage.config_store import get_active_model_profile, get_active_model_resource_dir
+
+    config = load_config()
+    candidate_paths = []
+    model_profile_dir = get_active_model_resource_dir(config=config)
+    candidate_paths.append(os.path.join(model_profile_dir, filename))
+    try:
+        profile = get_active_model_profile(config=config)
+        runtime = dict(profile.get("runtime") or {})
+        model_variant = str(runtime.get("model_variant", "") or profile.get("model_variant", "") or "").strip() or "vit-base-patch32"
+        provider = str(profile.get("provider", "") or "").strip()
+        if provider == "clip_onnx":
+            provider_dir = "openai-clip"
+        elif provider == "siglip2_onnx":
+            provider_dir = "siglip2"
+        else:
+            provider_dir = provider.replace("_", "-")
+        top_level_model_root = str(config.get("model_dir", "") or "").strip()
+        if top_level_model_root:
+            fallback_path = os.path.join(top_level_model_root, provider_dir, model_variant, filename)
+            if os.path.normcase(os.path.normpath(fallback_path)) != os.path.normcase(
+                os.path.normpath(candidate_paths[0])
+            ):
+                candidate_paths.append(fallback_path)
+    except Exception:
+        pass
+    for candidate in candidate_paths:
+        if os.path.exists(candidate):
+            return candidate
+    return candidate_paths[0]
 
 
 def get_missing_model_files(model_filenames):
@@ -202,7 +283,8 @@ def ensure_model_files(model_filenames):
         missing_display = ", ".join(missing)
         raise FileNotFoundError(
             f"Missing model files: {missing_display}. "
-            f"Place them in '{get_configured_model_dir()}' or next to the app under 'models'."
+            f"Place them under the active profile directory "
+            f"(runtime.model_dir + <provider folder> + <model_variant>), or use in-app download."
         )
 
     return resolved_paths
@@ -593,6 +675,81 @@ def validate_sampling_fps_rules(rules_text):
     return True, ""
 
 
+def validate_sampling_fps_rules_full_coverage(rules_text):
+    """
+    Require dynamic rules to fully cover [0, +inf):
+    - first range starts at 0
+    - ranges are contiguous (no gaps)
+    - final range has no upper bound
+    """
+    is_valid, invalid_ref = validate_sampling_fps_rules(rules_text)
+    if not is_valid:
+        return False, invalid_ref
+
+    rules = parse_sampling_fps_rules(rules_text)
+    if not rules:
+        return True, ""
+
+    ordered = sorted(
+        rules,
+        key=lambda rule: (rule["min_duration"], float("inf") if rule["max_duration"] is None else rule["max_duration"]),
+    )
+    first = ordered[0]
+    if float(first["min_duration"]) != 0.0:
+        return False, f"Rule {first['index'] + 1}"
+
+    for current, nxt in zip(ordered, ordered[1:]):
+        current_max = current["max_duration"]
+        if current_max is None:
+            return False, f"Rule {nxt['index'] + 1}"
+        if float(nxt["min_duration"]) != float(current_max):
+            return False, f"Rule {nxt['index'] + 1}"
+
+    last = ordered[-1]
+    if last["max_duration"] is not None:
+        return False, f"Rule {last['index'] + 1}"
+    return True, ""
+
+
+def ensure_sampling_fps_rules_open_tail(rules_text, default_tail_fps=0.5):
+    """
+    Auto-append an open-ended tail rule when the final range has an upper bound.
+    Example: "0-10m=2; 10m-60m=1" -> "...; 60m-=0.5"
+    """
+    normalized = normalize_sampling_fps_rules_text(rules_text)
+    if not normalized:
+        return normalized
+
+    is_valid, _ = validate_sampling_fps_rules(normalized)
+    if not is_valid:
+        return normalized
+
+    rules = parse_sampling_fps_rules(normalized)
+    if not rules:
+        return normalized
+
+    ordered = sorted(
+        rules,
+        key=lambda rule: (rule["min_duration"], float("inf") if rule["max_duration"] is None else rule["max_duration"]),
+    )
+    last = ordered[-1]
+    if last["max_duration"] is None:
+        return normalized
+
+    tail_start_minutes = float(last["max_duration"]) / 60.0
+    if abs(tail_start_minutes - round(tail_start_minutes)) < 1e-9:
+        tail_start_text = f"{int(round(tail_start_minutes))}m"
+    else:
+        tail_start_text = f"{tail_start_minutes:g}m"
+
+    try:
+        tail_fps = max(0.01, float(default_tail_fps))
+    except (TypeError, ValueError):
+        tail_fps = 0.5
+    tail_rule = f"{tail_start_text}-={tail_fps:g}"
+    return normalize_sampling_fps_rules_text(f"{normalized}; {tail_rule}")
+
+
 def parse_sampling_fps_rules(rules_text):
     rules = []
     normalized_text = normalize_sampling_fps_rules_text(rules_text)
@@ -704,14 +861,37 @@ def open_folder_in_explorer(folder_path):
 
 def get_single_thumbnail(video_path, time_sec):
     # Retained intentionally: imported dynamically inside ThumbLoader.run().
+    safe_time = max(0.0, float(time_sec))
+    # Fast path: keep one lightweight local decoder process.
+    capture = cv2.VideoCapture(video_path)
+    try:
+        if capture.isOpened():
+            capture.set(cv2.CAP_PROP_POS_MSEC, safe_time * 1000.0)
+            ok, frame = capture.read()
+            if ok and frame is not None and frame.size > 0:
+                return frame
+    except Exception:
+        pass
+    finally:
+        capture.release()
+
+    # Fallback path: ffmpeg hybrid seek when OpenCV decode fails.
     ffmpeg_bin = get_ffmpeg_path()
+    preroll_sec = 0.35
+    coarse_seek = max(0.0, safe_time - preroll_sec)
+    fine_seek = safe_time - coarse_seek
     cmd = [
         ffmpeg_bin,
+        "-hide_banner",
+        "-loglevel",
+        "error",
         "-ss",
-        str(time_sec),
+        f"{coarse_seek:.3f}",
         "-i",
         video_path,
-        "-vframes",
+        "-ss",
+        f"{fine_seek:.3f}",
+        "-frames:v",
         "1",
         "-f",
         "image2",

@@ -1,5 +1,6 @@
 import cv2
 import os
+import traceback
 from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
 
@@ -10,6 +11,7 @@ from src.core.core import run_search
 from src.services.about_service import get_about_payload
 from src.services.ffmpeg_service import download_ffmpeg
 from src.services.library_service import list_local_vector_details
+from src.services.model_package_service import import_model_package_zip, import_model_packages
 from src.services.model_service import download_models
 from src.services.notice_service import get_notice_payload
 from src.services.remote_library_service import build_remote_library_from_links
@@ -36,8 +38,10 @@ class SearchWorker(QThread):
             results = run_search(self.query, self.is_text)
             self.result_ready.emit(list(results) if results is not None else [])
         except Exception as exc:
-            print(f"Search Error: {exc}")
-            self.error_signal.emit(str(exc))
+            traceback.print_exc()
+            error_text = str(exc).strip() or repr(exc)
+            print(f"Search Error: {error_text}")
+            self.error_signal.emit(error_text)
         finally:
             self.finished.emit()
 
@@ -339,6 +343,53 @@ class LocalVectorDetailsWorker(QThread):
             self.error_signal.emit(str(exc))
         finally:
             self.finished.emit()
+
+
+class ModelPackageImportWorker(QThread):
+    progress_signal = Signal(int, str)
+    finished_signal = Signal(dict)
+    error_signal = Signal(str)
+
+    def __init__(self, model_root, selected_files=None, scan_only=False):
+        super().__init__()
+        self.model_root = str(model_root or "").strip()
+        self.selected_files = [str(path or "").strip() for path in (selected_files or []) if str(path or "").strip()]
+        self.scan_only = bool(scan_only)
+
+    def run(self):
+        try:
+            zip_files = [path for path in self.selected_files if path.lower().endswith(".zip")]
+            sha256_files = [path for path in self.selected_files if path.lower().endswith(".sha256")]
+            if zip_files and not self.scan_only:
+                aggregate = {"imported": 0, "updated": 0, "errors": [], "checksum_verified_count": 0}
+                total = max(1, len(zip_files))
+                for index, zip_path in enumerate(zip_files, start=1):
+                    progress_before = int(((index - 1) / total) * 90)
+                    self.progress_signal.emit(progress_before, f"Importing {os.path.basename(zip_path)}")
+                    matching_sha = ""
+                    expected_name = f"{os.path.basename(zip_path)}.sha256".lower()
+                    for candidate in sha256_files:
+                        if os.path.basename(candidate).lower() == expected_name:
+                            matching_sha = candidate
+                            break
+                    package_result = import_model_package_zip(self.model_root, zip_path, sha256_file=matching_sha)
+                    aggregate["imported"] += int(package_result.get("imported", 0))
+                    aggregate["updated"] += int(package_result.get("updated", 0))
+                    aggregate["errors"].extend(package_result.get("errors", []))
+                    if package_result.get("checksum_verified"):
+                        aggregate["checksum_verified_count"] += 1
+                    progress_after = int((index / total) * 95)
+                    self.progress_signal.emit(progress_after, f"Imported {index}/{total}")
+                self.progress_signal.emit(100, "Model package import finished")
+                self.finished_signal.emit(aggregate)
+                return
+
+            self.progress_signal.emit(20, "Scanning model directory")
+            result = import_model_packages(self.model_root)
+            self.progress_signal.emit(100, "Model directory scan finished")
+            self.finished_signal.emit(result)
+        except Exception as exc:
+            self.error_signal.emit(str(exc))
 
 
 def _ffmpeg_progress(current, total):

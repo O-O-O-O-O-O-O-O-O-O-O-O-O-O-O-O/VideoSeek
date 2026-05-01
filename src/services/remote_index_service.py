@@ -6,12 +6,14 @@ import urllib.request
 from src.app.app_meta import get_app_meta
 from src.app.config import load_config
 from src.services.download_utils import download_file
+from src.storage.config_store import get_remote_model_asset_paths
 
 
 def get_remote_index_status():
     config = load_config()
-    index_file = config.get("remote_index_file", "")
-    vector_file = config.get("remote_vector_file", "")
+    remote_paths = get_remote_model_asset_paths(config=config)
+    index_file = remote_paths["remote_index_file"]
+    vector_file = remote_paths["remote_vector_file"]
     manifest_url = str(get_app_meta().get("remote_index_manifest_url", "")).strip()
     return {
         "ready": bool(index_file and vector_file and os.path.exists(index_file) and os.path.exists(vector_file)),
@@ -60,9 +62,10 @@ def download_remote_index_pack(progress_callback=None):
         raise RuntimeError("Remote index manifest is unavailable.")
 
     config = load_config()
+    remote_paths = get_remote_model_asset_paths(config=config)
     target_by_name = {
-        os.path.basename(config.get("remote_index_file", "")): config.get("remote_index_file", ""),
-        os.path.basename(config.get("remote_vector_file", "")): config.get("remote_vector_file", ""),
+        os.path.basename(remote_paths["remote_index_file"]): remote_paths["remote_index_file"],
+        os.path.basename(remote_paths["remote_vector_file"]): remote_paths["remote_vector_file"],
     }
     targets = []
     for file_info in manifest["files"]:

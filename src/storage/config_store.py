@@ -1,0 +1,220 @@
+import os
+
+from src.app.config import get_data_storage_paths, load_config, save_config
+
+_PROVIDER_DEFAULT_DIMENSION = {
+    "clip_onnx": 512,
+    "siglip2_onnx": 768,
+}
+
+
+def get_app_config():
+    return load_config()
+
+
+def save_app_config(config):
+    save_config(config)
+
+
+def get_data_paths(config=None):
+    return get_data_storage_paths(config=config)
+
+
+def get_config_schema_version(config=None):
+    cfg = dict(config or load_config())
+    try:
+        return int(cfg.get("schema_version", 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def get_active_model_profile(config=None):
+    cfg = dict(config or load_config())
+    schema_version = get_config_schema_version(cfg)
+    if schema_version < 2:
+        raise RuntimeError(f"Unsupported config schema_version={schema_version}, expected >=2")
+    models = cfg.get("models")
+    if not isinstance(models, dict):
+        models = {}
+    profiles = models.get("profiles")
+    if not isinstance(profiles, list) or not profiles:
+        # Recovery path: allow boot/migration even when user removed all profiles.
+        # Keep this in-memory only; migration/save flows can persist proper defaults.
+        fallback_model_dir = str(cfg.get("model_dir", "") or "").strip()
+        return {
+            "id": "clip_onnx_default",
+            "provider": "clip_onnx",
+            "display_name": "CLIP ONNX",
+            "enabled": True,
+            "runtime": {
+                "prefer_gpu": bool(cfg.get("prefer_gpu", True)),
+                "model_dir": fallback_model_dir,
+                "model_variant": "vit-base-patch32",
+            },
+            "files": {
+                "visual_model": "clip_visual.onnx",
+                "text_model": "clip_text.onnx",
+                "tokenizer_vocab": "bpe_simple_vocab_16e6.txt.gz",
+            },
+            "capabilities": {
+                "text_query": True,
+                "image_query": True,
+                "video_embedding": True,
+                "cross_modal_search": True,
+            },
+        }
+    active_profile_id = str(models.get("active_profile", "") or "").strip()
+    if not active_profile_id and profiles:
+        first = profiles[0]
+        if isinstance(first, dict):
+            active_profile_id = str(first.get("id", "") or "").strip()
+    for profile in profiles:
+        if isinstance(profile, dict) and str(profile.get("id", "") or "").strip() == active_profile_id:
+            return dict(profile)
+    if profiles and isinstance(profiles[0], dict):
+        return dict(profiles[0])
+    raise RuntimeError(f"Active model profile not found: {active_profile_id}")
+
+
+def get_active_model_runtime(config=None):
+    profile = get_active_model_profile(config=config)
+    runtime = profile.get("runtime")
+    if not isinstance(runtime, dict):
+        raise RuntimeError("Missing runtime section in active model profile")
+    return dict(runtime)
+
+
+def get_effective_prefer_gpu(config=None):
+    runtime = get_active_model_runtime(config=config)
+    if "prefer_gpu" not in runtime:
+        raise RuntimeError("Missing runtime.prefer_gpu in active model profile")
+    return bool(runtime.get("prefer_gpu"))
+
+
+def get_effective_model_dir(config=None):
+    runtime = get_active_model_runtime(config=config)
+    if "model_dir" not in runtime:
+        raise RuntimeError("Missing runtime.model_dir in active model profile")
+    return str(runtime.get("model_dir", "") or "").strip()
+
+
+def get_local_model_asset_dirs(config=None):
+    cfg = dict(config or load_config())
+    data_paths = get_data_storage_paths(config=cfg)
+    profile = get_active_model_profile(config=cfg)
+    provider = str(profile.get("provider", "") or "").strip()
+    if not provider:
+        raise RuntimeError("Missing active model profile provider for local asset dirs")
+    runtime = dict(profile.get("runtime") or {})
+    model_variant = str(runtime.get("model_variant", "") or profile.get("model_variant", "") or "").strip()
+    if not model_variant:
+        model_variant = "vit-base-patch32"
+    if provider == "clip_onnx":
+        provider_dir = "openai-clip"
+    elif provider == "siglip2_onnx":
+        provider_dir = "siglip2"
+    else:
+        provider_dir = provider.replace("_", "-")
+    base_dir = os.path.join(data_paths["data_dir"], "model_assets", provider_dir, model_variant)
+    return {
+        "base_dir": base_dir,
+        "meta_file": os.path.join(base_dir, "meta.json"),
+        "vector_dir": os.path.join(base_dir, "vector"),
+        "index_dir": os.path.join(base_dir, "index"),
+    }
+
+
+def get_global_model_asset_paths(config=None):
+    model_dirs = get_local_model_asset_dirs(config=config)
+    global_dir = os.path.join(model_dirs["base_dir"], "global")
+    return {
+        "global_dir": global_dir,
+        "cross_index_file": os.path.join(global_dir, "cross_video_index.faiss"),
+        "cross_vector_file": os.path.join(global_dir, "cross_video_vectors.npy"),
+        "cross_chunk_index_file": os.path.join(global_dir, "cross_chunk_index.faiss"),
+        "cross_chunk_vector_file": os.path.join(global_dir, "cross_chunk_vectors.npy"),
+    }
+
+
+def get_remote_model_asset_paths(config=None):
+    model_dirs = get_local_model_asset_dirs(config=config)
+    remote_dir = os.path.join(model_dirs["base_dir"], "remote")
+    return {
+        "remote_dir": remote_dir,
+        "remote_index_file": os.path.join(remote_dir, "remote_index.faiss"),
+        "remote_vector_file": os.path.join(remote_dir, "remote_vectors.npy"),
+    }
+
+
+def get_model_profile_storage_paths(config=None):
+    model_dirs = get_local_model_asset_dirs(config=config)
+    global_paths = get_global_model_asset_paths(config=config)
+    remote_paths = get_remote_model_asset_paths(config=config)
+    merged = dict(model_dirs)
+    merged.update(global_paths)
+    merged.update(remote_paths)
+    return merged
+
+
+def get_active_model_resource_dir(config=None):
+    profile = get_active_model_profile(config=config)
+    runtime = dict(profile.get("runtime") or {})
+    model_root = str(runtime.get("model_dir", "") or "").strip()
+    if not model_root:
+        raise RuntimeError("Missing runtime.model_dir in active model profile")
+    provider = str(profile.get("provider", "") or "").strip()
+    if not provider:
+        raise RuntimeError("Missing profile provider for model resource directory")
+    if provider == "clip_onnx":
+        provider_dir = "openai-clip"
+    elif provider == "siglip2_onnx":
+        provider_dir = "siglip2"
+    else:
+        provider_dir = provider.replace("_", "-")
+    model_variant = str(runtime.get("model_variant", "") or profile.get("model_variant", "") or "").strip()
+    if not model_variant:
+        model_variant = "vit-base-patch32"
+    return os.path.join(model_root, provider_dir, model_variant)
+
+
+def get_active_embedding_spec(config=None):
+    cfg = dict(config or load_config())
+    profile = get_active_model_profile(config=cfg)
+    runtime = dict(profile.get("runtime") or {})
+    capabilities = dict(profile.get("capabilities") or {})
+    profile_id = str(profile.get("id", "") or "").strip() or "clip_onnx_default"
+    provider = str(profile.get("provider", "") or "").strip() or "clip_onnx"
+
+    embedding_space = str(
+        runtime.get("embedding_space")
+        or profile.get("embedding_space")
+        or capabilities.get("embedding_space")
+        or profile_id
+    ).strip() or profile_id
+    metric = str(
+        runtime.get("metric")
+        or profile.get("metric")
+        or capabilities.get("metric")
+        or "ip"
+    ).strip().lower() or "ip"
+    raw_dimension = (
+        runtime.get("embedding_dimension")
+        or runtime.get("dimension")
+        or profile.get("embedding_dimension")
+        or profile.get("dimension")
+        or capabilities.get("embedding_dimension")
+        or capabilities.get("dimension")
+        or _PROVIDER_DEFAULT_DIMENSION.get(provider, 0)
+    )
+    try:
+        dimension = int(raw_dimension)
+    except (TypeError, ValueError):
+        dimension = 0
+
+    return {
+        "model_id": profile_id,
+        "provider": provider,
+        "embedding_space": embedding_space,
+        "dimension": dimension,
+        "metric": metric,
+    }

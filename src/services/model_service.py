@@ -6,13 +6,52 @@ import urllib.request
 
 from src.app.app_meta import get_app_meta
 from src.services.download_utils import download_file
-from src.utils import get_configured_model_dir, get_missing_model_files
+from src.storage.config_store import get_active_model_resource_dir
+from src.utils import get_missing_model_files
 
 REQUIRED_MODEL_FILES = [
     "clip_visual.onnx",
     "clip_text.onnx",
     "bpe_simple_vocab_16e6.txt.gz",
 ]
+
+PROVIDER_REQUIRED_MODEL_FILES = {
+    "clip_onnx": list(REQUIRED_MODEL_FILES),
+    "siglip2_onnx": [
+        "vision_model.onnx",
+        "text_model.onnx",
+        "tokenizer.json",
+        "tokenizer_config.json",
+    ],
+}
+
+
+def get_required_model_files(config=None):
+    from src.app.config import load_config
+    from src.storage.config_store import get_active_model_profile
+
+    current_config = dict(config or load_config())
+    try:
+        profile = get_active_model_profile(config=current_config)
+    except Exception:
+        # Keep runtime checks usable even when no model profile is configured yet.
+        return list(REQUIRED_MODEL_FILES)
+    provider = str(profile.get("provider", "") or "").strip()
+
+    files_map = profile.get("files")
+    if isinstance(files_map, dict):
+        from_profile = [str(value or "").strip() for value in files_map.values() if str(value or "").strip()]
+        if from_profile:
+            deduped = []
+            seen = set()
+            for item in from_profile:
+                key = item.lower()
+                if key in seen:
+                    continue
+                deduped.append(item)
+                seen.add(key)
+            return deduped
+    return list(PROVIDER_REQUIRED_MODEL_FILES.get(provider, REQUIRED_MODEL_FILES))
 
 def fetch_remote_model_manifest():
     app_meta = get_app_meta()
@@ -40,7 +79,10 @@ def download_models(progress_callback=None):
     if not manifest:
         raise RuntimeError("Model manifest is unavailable.")
 
-    model_dir = get_configured_model_dir()
+    from src.app.config import load_config
+
+    config = load_config()
+    model_dir = get_active_model_resource_dir(config=config)
     os.makedirs(model_dir, exist_ok=True)
     total_files = len(manifest["files"])
 
@@ -82,7 +124,7 @@ def download_models(progress_callback=None):
     if progress_callback:
         progress_callback(100, "Model download completed")
 
-    missing_files, _ = get_missing_model_files(REQUIRED_MODEL_FILES)
+    missing_files, _ = get_missing_model_files(get_required_model_files(config=config))
     if missing_files:
         raise RuntimeError(f"Downloaded files are incomplete: {', '.join(missing_files)}")
 

@@ -1,3 +1,4 @@
+import os
 import sys
 import types
 import unittest
@@ -100,8 +101,10 @@ class UtilsConfigSyncTests(unittest.TestCase):
     @patch("src.app.config.load_config")
     @patch("src.utils.resolve_model_dir_info")
     @patch("src.utils.get_default_model_dir")
+    @patch("src.storage.config_store.get_effective_model_dir")
     def test_sync_model_dir_to_config_writes_default_back(
         self,
+        mock_get_effective_model_dir,
         mock_default_model_dir,
         mock_resolve_model_dir_info,
         mock_load_config,
@@ -109,6 +112,7 @@ class UtilsConfigSyncTests(unittest.TestCase):
     ):
         mock_default_model_dir.return_value = "D:/VideoSeek/models"
         mock_load_config.return_value = {"model_dir": ""}
+        mock_get_effective_model_dir.return_value = ""
         mock_resolve_model_dir_info.return_value = ("D:/VideoSeek/models", "default")
 
         result = utils.sync_model_dir_to_config()
@@ -122,8 +126,12 @@ class UtilsConfigSyncTests(unittest.TestCase):
     @patch("src.utils.resolve_model_dir_info")
     @patch("src.utils.get_default_model_dir")
     @patch("src.utils.os.path.isdir")
+    @patch("src.storage.config_store.get_effective_model_dir")
+    @patch("src.storage.config_store.get_active_model_profile")
     def test_sync_model_dir_to_config_replaces_missing_custom_path(
         self,
+        mock_get_active_profile,
+        mock_get_effective_model_dir,
         mock_isdir,
         mock_default_model_dir,
         mock_resolve_model_dir_info,
@@ -131,7 +139,11 @@ class UtilsConfigSyncTests(unittest.TestCase):
         mock_save_config,
     ):
         mock_default_model_dir.return_value = "D:/VideoSeek/models"
-        mock_load_config.return_value = {"model_dir": "C:/Users/LiuWei/AppData/Local/VideoSeek/models"}
+        # Use normpath-stable path so sync_model_dir_to_config does not extra-save on slash normalization.
+        missing_custom = os.path.normpath("C:/Users/LiuWei/AppData/Local/VideoSeek/models")
+        mock_load_config.return_value = {"model_dir": missing_custom}
+        mock_get_effective_model_dir.return_value = missing_custom
+        mock_get_active_profile.return_value = {"id": "clip_onnx_default"}
         mock_isdir.return_value = False
         mock_resolve_model_dir_info.return_value = ("D:/VideoSeek/models", "default")
 
@@ -139,7 +151,56 @@ class UtilsConfigSyncTests(unittest.TestCase):
 
         self.assertEqual(result, "D:/VideoSeek/models")
         self.assertEqual(mock_load_config.return_value["model_dir"], "D:/VideoSeek/models")
-        mock_save_config.assert_called_once_with(mock_load_config.return_value)
+        self.assertEqual(mock_save_config.call_args_list[-1][0][0]["model_dir"], "D:/VideoSeek/models")
+
+    @patch("src.app.config.save_config")
+    @patch("src.app.config.load_config")
+    @patch("src.utils.os.path.isdir")
+    @patch("src.storage.config_store.get_effective_model_dir")
+    @patch("src.storage.config_store.get_active_model_profile")
+    def test_sync_model_dir_to_config_prefers_valid_top_level_when_runtime_stale(
+        self,
+        mock_get_active_profile,
+        mock_get_effective_model_dir,
+        mock_isdir,
+        mock_load_config,
+        mock_save_config,
+    ):
+        stale_runtime_dir = os.path.normpath("C:/Users/LiuWei/AppData/Local/VideoSeek/models")
+        moved_model_root = os.path.normpath("D:/vsdata/models")
+        config = {
+            "model_dir": moved_model_root,
+            "models": {
+                "active_profile": "clip_onnx_default",
+                "profiles": [
+                    {
+                        "id": "clip_onnx_default",
+                        "runtime": {"model_dir": stale_runtime_dir},
+                    }
+                ],
+            },
+        }
+        mock_load_config.return_value = config
+        mock_get_effective_model_dir.return_value = stale_runtime_dir
+        mock_get_active_profile.return_value = {"id": "clip_onnx_default"}
+
+        def _isdir(path):
+            normalized = os.path.normcase(os.path.normpath(str(path)))
+            if normalized == os.path.normcase(stale_runtime_dir):
+                return False
+            if normalized == os.path.normcase(moved_model_root):
+                return True
+            return False
+
+        mock_isdir.side_effect = _isdir
+
+        result = utils.sync_model_dir_to_config()
+
+        self.assertEqual(result, moved_model_root)
+        self.assertEqual(config["model_dir"], moved_model_root)
+        runtime_dir = config["models"]["profiles"][0]["runtime"]["model_dir"]
+        self.assertEqual(runtime_dir, moved_model_root)
+        mock_save_config.assert_called_once_with(config)
 
     @patch("src.app.config.save_config")
     @patch("src.app.config.load_config")
@@ -183,17 +244,21 @@ class RuntimeDiagnosticTests(unittest.TestCase):
     @patch("src.core.clip_embedding._is_windows", return_value=True)
     @patch("src.core.clip_embedding._is_windows_10_1903_or_newer", return_value=True)
     @patch("src.core.clip_embedding._is_directml_provider_available", return_value=True)
-    @patch("src.core.clip_embedding._can_load_windows_dll", return_value=True)
-    @patch("src.core.clip_embedding._collect_available_dll_names")
+    @patch("src.core.clip_embedding._can_load_windows_dll")
     def test_detect_gpu_runtime_issue_reports_msvc(
         self,
-        mock_collect_names,
-        _mock_dll,
+        mock_can_load_dll,
         _mock_provider,
         _mock_version,
         _mock_windows,
     ):
-        mock_collect_names.return_value = {"cudart64_12.dll", "cublaslt64_12.dll", "cudnn64_9.dll"}
+        def _dll_side_effect(name):
+            lower = str(name or "").lower()
+            if lower in ("directml.dll", "d3d12.dll"):
+                return True
+            return False
+
+        mock_can_load_dll.side_effect = _dll_side_effect
 
         self.assertEqual(clip_embedding.detect_gpu_runtime_issue(), "msvc")
 

@@ -1,14 +1,16 @@
+import json
 import os
 import re
+import shutil
 import time
 import webbrowser
 from collections import deque
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
-from PySide6.QtWidgets import QApplication, QFileDialog, QFrame, QMainWindow, QMessageBox, QScrollArea, QStackedWidget, \
+from PySide6.QtWidgets import QApplication, QFileDialog, QFrame, QGraphicsOpacityEffect, QMainWindow, QMessageBox, QScrollArea, QStackedWidget, \
     QVBoxLayout, QWidget, QHBoxLayout, QAbstractItemView
 
 from src.app.config import (
@@ -20,6 +22,7 @@ from src.app.config import (
     pop_migration_notice,
     save_config,
 )
+from src.app.app_meta import get_app_meta
 from src.app.i18n import get_texts
 from src.core.clip_embedding import get_engine_runtime_status, reset_engine
 from src.services.about_service import get_local_about_payload
@@ -34,23 +37,32 @@ from src.services.library_service import (
 )
 from src.services.notice_service import get_local_notice_payload
 from src.services.indexing_service import list_missing_library_files
-from src.services.storage_service import cleanup_old_data_root as cleanup_old_data_root_service, migrate_app_data_root
+from src.services.storage_service import (
+    cleanup_old_data_root as cleanup_old_data_root_service,
+    cleanup_old_model_dir as cleanup_old_model_dir_service,
+    migrate_app_data_root,
+    migrate_model_root,
+)
+from src.services.model_package_service import remove_model_profile
+from src.storage.config_store import get_active_model_profile, get_effective_model_dir
 from src.services.query_text_service import prepare_text_query
 from src.services.remote_library_service import list_remote_link_details
 from src.services.remote_link_precheck_service import precheck_remote_links
+from src.storage.asset_store import load_model_metadata
 from src.web.display_qr import build_qr_pixmap
 from src.workflows.update_video import delete_physical_video_data
 from src.utils import (
+    ensure_sampling_fps_rules_open_tail,
     get_ffmpeg_status_text,
+    get_configured_ffmpeg_target_path,
     get_configured_model_dir,
-    load_meta,
     normalize_sampling_fps_mode,
     normalize_sampling_fps_rules_text,
     open_folder_in_explorer,
     open_in_explorer,
     parse_sampling_fps_rules,
     resolve_sampling_fps,
-    validate_sampling_fps_rules,
+    validate_sampling_fps_rules_full_coverage,
     sync_ffmpeg_path_to_config,
     sync_model_dir_to_config,
 )
@@ -68,7 +80,7 @@ from ui.runtime_resource_controller import RuntimeResourceController
 from ui.search_controller import SearchController
 from ui.styles import DARK_STYLE, LIGHT_STYLE
 from ui.table_views import populate_library_table
-from ui.workers import LocalVectorDetailsWorker
+from ui.workers import LocalVectorDetailsWorker, ModelPackageImportWorker
 
 
 class MainWindow(QMainWindow):
@@ -90,8 +102,15 @@ class MainWindow(QMainWindow):
         self._preview_export_seq = 0
         self._preview_export_tasks = []
         self._local_vector_detail_worker = None
+        self._model_package_import_worker = None
+        self._ffmpeg_imported_with_package = False
+        self._settings_dirty = False
+        self._settings_loading = False
+        self._settings_dirty_tracking_bound = False
         self._last_index_issues = []
         self._last_index_issue_target = None
+        self._search_indexing_notice_effect = None
+        self._search_indexing_notice_animation = None
         cfg = load_config()
         self._debug_tools_enabled = bool(cfg.get("show_debug_test_buttons", False))
         self.is_dark_mode = cfg.get("theme", "dark") == "dark"
@@ -128,9 +147,11 @@ class MainWindow(QMainWindow):
         self.media_player.setVideoOutput(self.video_widget)
         self._update_expand_preview_button()
         self.apply_texts()
+        self._bind_settings_dirty_tracking()
         self.load_settings_values()
+        self._set_settings_dirty(False)
         self._show_startup_migration_notice()
-        self.check_runtime_resources()
+        self.check_runtime_resources(show_dialog=False)
         if self.startup_cancelled:
             return
         self.apply_theme()
@@ -223,9 +244,17 @@ class MainWindow(QMainWindow):
         self.settings_page.btn_browse_data_root.clicked.connect(self._browse_data_root)
         self.settings_page.btn_browse_ffmpeg_path.clicked.connect(self._browse_ffmpeg_path)
         self.settings_page.btn_browse_model_dir.clicked.connect(self._browse_model_dir)
+        self.settings_page.btn_migrate_model_dir.clicked.connect(self._migrate_model_root)
+        self.settings_page.btn_download_runtime_resources.clicked.connect(self.open_runtime_resource_dialog)
+        self.settings_page.btn_remove_model_profile.clicked.connect(self.remove_current_model_profile)
+        self.settings_page.input_active_model_profile.currentIndexChanged.connect(self._on_active_model_profile_changed)
+        self.settings_page.btn_show_runtime_diagnostics.clicked.connect(self.show_runtime_diagnostics)
         self.settings_page.btn_cleanup_old_data_root.clicked.connect(self.cleanup_old_data_root)
+        self.settings_page.btn_cleanup_old_model_dir.clicked.connect(self.cleanup_old_model_dir)
 
         self.setAcceptDrops(True)
+        for page in (self.search_page, self.link_page, self.library_page, self.settings_page):
+            page.header.runtime_banner_action.clicked.connect(self.open_runtime_resource_dialog)
 
     def _build_scroll_page(self, page_widget):
         scroll = QScrollArea()
@@ -297,7 +326,8 @@ class MainWindow(QMainWindow):
         self.search_page.search_mode.setCurrentIndex(1 if current_mode == "chunk" else 0)
         self.search_page.search_mode.blockSignals(False)
         self.search_page.session_title.setText(t["workspace_label"])
-        self.search_page.session_hint.setText(t["workspace_hint"])
+        self.search_page.indexing_notice_text.setText(t.get("search_during_indexing_hint", ""))
+        self._refresh_search_session_hint()
         self.search_page.preview_title.setText(t["preview_panel"])
         self.search_page.btn_expand_preview.setText(t.get("preview_expand", "放大预览"))
         self.search_page.results_title.setText(t["results_panel"])
@@ -367,7 +397,7 @@ class MainWindow(QMainWindow):
         self.settings_page.btn_reset.setText(t["reset_settings"])
         self.settings_page.configure_form_labels(t)
         self._update_inference_backend_hint()
-        self._refresh_pending_cleanup_action(config)
+        self._refresh_pending_cleanup_actions(config)
 
         if not self.current_img_path and not self.search_page.img_label.pixmap():
             self.search_page.img_label.setText(t["image_drop_hint"])
@@ -395,11 +425,14 @@ class MainWindow(QMainWindow):
         self.app_meta_controller.refresh(self.language)
 
     def load_settings_values(self):
+        self._settings_loading = True
         try:
             config = load_config()
         except Exception as exc:
+            self._settings_loading = False
             self.show_error_dialog(self.texts["settings_load_failed"], exc)
             return
+        self._populate_model_profile_options(config)
         sampling_fps_mode = normalize_sampling_fps_mode(
             config.get("sampling_fps_mode", DEFAULT_CONFIG["sampling_fps_mode"])
         )
@@ -412,6 +445,29 @@ class MainWindow(QMainWindow):
             sampling_rules = DEFAULT_CONFIG["sampling_fps_rules"]
         self.settings_page.set_sampling_fps_rules_text(sampling_rules)
         self.settings_page.input_top_k.setValue(config.get("search_top_k", DEFAULT_CONFIG["search_top_k"]))
+        frame_neighbor_rerank_enabled = bool(
+            config.get(
+                "frame_neighbor_rerank_enabled",
+                DEFAULT_CONFIG["frame_neighbor_rerank_enabled"],
+            )
+        )
+        self.settings_page.input_frame_neighbor_rerank_enabled.setCurrentIndex(1 if frame_neighbor_rerank_enabled else 0)
+        self.settings_page.input_frame_neighbor_rerank_top_n.setValue(
+            int(
+                config.get(
+                    "frame_neighbor_rerank_top_n",
+                    DEFAULT_CONFIG["frame_neighbor_rerank_top_n"],
+                )
+            )
+        )
+        self.settings_page.input_frame_neighbor_rerank_window.setValue(
+            int(
+                config.get(
+                    "frame_neighbor_rerank_window",
+                    DEFAULT_CONFIG["frame_neighbor_rerank_window"],
+                )
+            )
+        )
         self.settings_page.input_preview_seconds.setValue(
             config.get("preview_seconds", DEFAULT_CONFIG["preview_seconds"])
         )
@@ -450,6 +506,10 @@ class MainWindow(QMainWindow):
         )
         prefer_gpu = config.get("prefer_gpu", DEFAULT_CONFIG["prefer_gpu"])
         self.settings_page.input_prefer_gpu.setCurrentIndex(0 if prefer_gpu else 1)
+        gpu_probe_unknown_keep_gpu = bool(
+            config.get("gpu_probe_unknown_keep_gpu", DEFAULT_CONFIG["gpu_probe_unknown_keep_gpu"])
+        )
+        self.settings_page.input_gpu_probe_unknown_keep_gpu.setCurrentIndex(1 if gpu_probe_unknown_keep_gpu else 0)
         auto_cleanup_missing_files = bool(
             config.get("auto_cleanup_missing_files", DEFAULT_CONFIG["auto_cleanup_missing_files"])
         )
@@ -460,7 +520,110 @@ class MainWindow(QMainWindow):
         self._update_inference_backend_hint()
         self._update_sampling_rules_feedback()
         self._update_sampling_preview()
-        self._refresh_pending_cleanup_action(config)
+        self._refresh_pending_cleanup_actions(config)
+        self._settings_loading = False
+        self._set_settings_dirty(False)
+
+    def _bind_settings_dirty_tracking(self):
+        if self._settings_dirty_tracking_bound:
+            return
+        self._settings_dirty_tracking_bound = True
+        editors = [
+            self.settings_page.input_fps,
+            self.settings_page.input_top_k,
+            self.settings_page.input_frame_neighbor_rerank_enabled,
+            self.settings_page.input_frame_neighbor_rerank_top_n,
+            self.settings_page.input_frame_neighbor_rerank_window,
+            self.settings_page.input_preview_seconds,
+            self.settings_page.input_preview_width,
+            self.settings_page.input_preview_height,
+            self.settings_page.input_thumb_width,
+            self.settings_page.input_thumb_height,
+            self.settings_page.input_remote_max_frames,
+            self.settings_page.input_embedding_batch_size,
+            self.settings_page.input_similarity_threshold,
+            self.settings_page.input_max_chunk_duration,
+            self.settings_page.input_min_chunk_size,
+            self.settings_page.input_chunk_similarity_mode,
+            self.settings_page.input_prefer_gpu,
+            self.settings_page.input_gpu_probe_unknown_keep_gpu,
+            self.settings_page.input_auto_cleanup_missing_files,
+            self.settings_page.input_active_model_profile,
+            self.settings_page.input_data_root,
+            self.settings_page.input_ffmpeg_path,
+            self.settings_page.input_model_dir,
+            self.settings_page.input_sampling_fps_mode,
+            self.settings_page.input_sampling_fps_rules,
+        ]
+        for widget in editors:
+            if hasattr(widget, "valueChanged"):
+                widget.valueChanged.connect(self._mark_settings_dirty)
+            elif hasattr(widget, "currentIndexChanged"):
+                widget.currentIndexChanged.connect(self._mark_settings_dirty)
+            elif hasattr(widget, "textChanged"):
+                widget.textChanged.connect(self._mark_settings_dirty)
+
+    def _mark_settings_dirty(self, *_args):
+        if self._settings_loading:
+            return
+        self._set_settings_dirty(True)
+
+    def _set_settings_dirty(self, dirty):
+        dirty = bool(dirty)
+        self._settings_dirty = dirty
+        btn = self.settings_page.btn_save
+        btn.setEnabled(dirty)
+        target_object = "PrimaryButton" if dirty else "GhostButton"
+        if btn.objectName() != target_object:
+            btn.setObjectName(target_object)
+            style = btn.style()
+            style.unpolish(btn)
+            style.polish(btn)
+            btn.update()
+
+    def _populate_model_profile_options(self, config):
+        models = dict(config.get("models") or {})
+        profiles = [item for item in models.get("profiles", []) if isinstance(item, dict)]
+        active_profile_id = str(models.get("active_profile", "") or "").strip()
+        combo = self.settings_page.input_active_model_profile
+        combo.blockSignals(True)
+        combo.clear()
+        for profile in profiles:
+            profile_id = str(profile.get("id", "") or "").strip()
+            if not profile_id:
+                continue
+            runtime = dict(profile.get("runtime") or {})
+            provider = str(profile.get("provider", "") or "").strip()
+            provider_dir = "openai-clip" if provider == "clip_onnx" else provider.replace("_", "-")
+            model_variant = str(runtime.get("model_variant", "") or profile.get("model_variant", "") or "").strip()
+            if not model_variant:
+                model_variant = "vit-base-patch32"
+            display_name = f"{provider_dir} / {model_variant}"
+            combo.addItem(display_name, profile_id)
+        if combo.count() == 0:
+            combo.addItem(
+                self.texts.get("model_profile_none", "No model imported"),
+                "",
+            )
+            active_profile_id = ""
+        index = combo.findData(active_profile_id)
+        combo.setCurrentIndex(0 if index < 0 else index)
+        combo.blockSignals(False)
+
+    def _on_active_model_profile_changed(self, _index):
+        config = load_config()
+        selected_profile_id = str(self.settings_page.input_active_model_profile.currentData() or "").strip()
+        models = dict(config.get("models") or {})
+        profiles = [item for item in models.get("profiles", []) if isinstance(item, dict)]
+        for profile in profiles:
+            if str(profile.get("id", "") or "").strip() != selected_profile_id:
+                continue
+            runtime = dict(profile.get("runtime") or {})
+            prefer_gpu = bool(runtime.get("prefer_gpu", DEFAULT_CONFIG["prefer_gpu"]))
+            model_dir = str(runtime.get("model_dir", "") or "").strip() or config.get("model_dir", DEFAULT_CONFIG["model_dir"])
+            self.settings_page.input_prefer_gpu.setCurrentIndex(0 if prefer_gpu else 1)
+            self.settings_page.input_model_dir.setText(model_dir)
+            break
 
     def save_settings(self):
         try:
@@ -487,14 +650,33 @@ class MainWindow(QMainWindow):
                 config.get("chunk_similarity_mode", DEFAULT_CONFIG["chunk_similarity_mode"])
             )
             previous_prefer_gpu = config.get("prefer_gpu", DEFAULT_CONFIG["prefer_gpu"])
+            previous_gpu_probe_unknown_keep_gpu = bool(
+                config.get("gpu_probe_unknown_keep_gpu", DEFAULT_CONFIG["gpu_probe_unknown_keep_gpu"])
+            )
+            previous_models = dict(config.get("models") or {})
+            previous_active_profile_id = str(previous_models.get("active_profile", "") or "").strip()
+            try:
+                previous_effective_model_dir = str(get_effective_model_dir(config=config) or "").strip()
+            except Exception:
+                previous_effective_model_dir = ""
             new_fps = self.settings_page.input_fps.value()
             new_sampling_fps_mode = normalize_sampling_fps_mode(
                 self.settings_page.get_sampling_fps_mode()
             )
-            new_sampling_fps_rules = normalize_sampling_fps_rules_text(
+            user_sampling_fps_rules = normalize_sampling_fps_rules_text(
                 self.settings_page.get_sampling_fps_rules_text()
             )
-            rules_valid, _ = validate_sampling_fps_rules(new_sampling_fps_rules)
+            new_sampling_fps_rules = user_sampling_fps_rules
+            if new_sampling_fps_mode == "dynamic":
+                new_sampling_fps_rules = ensure_sampling_fps_rules_open_tail(new_sampling_fps_rules, default_tail_fps=0.5)
+            auto_tail_rule = ""
+            if (
+                new_sampling_fps_mode == "dynamic"
+                and user_sampling_fps_rules
+                and new_sampling_fps_rules != user_sampling_fps_rules
+            ):
+                auto_tail_rule = new_sampling_fps_rules[len(user_sampling_fps_rules):].lstrip(" ;")
+            rules_valid, _ = validate_sampling_fps_rules_full_coverage(new_sampling_fps_rules)
             if new_sampling_fps_mode == "dynamic" and new_sampling_fps_rules and not rules_valid:
                 self.settings_page.lbl_status.setText(self.texts["setting_sampling_fps_rules_invalid"] )
                 self.show_info_dialog(
@@ -514,6 +696,15 @@ class MainWindow(QMainWindow):
             # switching back to dynamic mode does not silently drop it.
             config["sampling_fps_rules"] = new_sampling_fps_rules
             config["search_top_k"] = self.settings_page.input_top_k.value()
+            config["frame_neighbor_rerank_enabled"] = bool(
+                self.settings_page.input_frame_neighbor_rerank_enabled.currentData()
+            )
+            config["frame_neighbor_rerank_top_n"] = int(
+                self.settings_page.input_frame_neighbor_rerank_top_n.value()
+            )
+            config["frame_neighbor_rerank_window"] = int(
+                self.settings_page.input_frame_neighbor_rerank_window.value()
+            )
             config["preview_seconds"] = self.settings_page.input_preview_seconds.value()
             config["preview_width"] = self.settings_page.input_preview_width.value()
             config["preview_height"] = self.settings_page.input_preview_height.value()
@@ -526,12 +717,48 @@ class MainWindow(QMainWindow):
             config["min_chunk_size"] = new_min_chunk_size
             config["chunk_similarity_mode"] = new_chunk_similarity_mode
             config["prefer_gpu"] = bool(self.settings_page.input_prefer_gpu.currentData())
+            config["gpu_probe_unknown_keep_gpu"] = bool(
+                self.settings_page.input_gpu_probe_unknown_keep_gpu.currentData()
+            )
             config["auto_cleanup_missing_files"] = bool(
                 self.settings_page.input_auto_cleanup_missing_files.currentData()
             )
+            selected_profile_id = str(self.settings_page.input_active_model_profile.currentData() or "").strip()
+            models = config.get("models")
+            if not isinstance(models, dict):
+                models = {}
+                config["models"] = models
+            profiles = models.get("profiles")
+            if not isinstance(profiles, list):
+                profiles = []
+                models["profiles"] = profiles
+            if selected_profile_id:
+                models["active_profile"] = selected_profile_id
             requested_data_root = self._normalize_requested_data_root(self.settings_page.input_data_root.text())
             config["ffmpeg_path"] = self.settings_page.input_ffmpeg_path.text().strip()
             config["model_dir"] = self.settings_page.input_model_dir.text().strip() or DEFAULT_CONFIG["model_dir"]
+            if selected_profile_id:
+                for idx, item in enumerate(profiles):
+                    if not isinstance(item, dict):
+                        continue
+                    if str(item.get("id", "") or "").strip() != selected_profile_id:
+                        continue
+                    updated_item = dict(item)
+                    runtime = dict(updated_item.get("runtime") or {})
+                    runtime["prefer_gpu"] = config["prefer_gpu"]
+                    runtime["model_dir"] = config["model_dir"]
+                    updated_item["runtime"] = runtime
+                    profiles[idx] = updated_item
+                    break
+            try:
+                new_effective_model_dir = str(get_effective_model_dir(config=config) or "").strip()
+            except Exception:
+                new_effective_model_dir = ""
+            profile_switched = bool(selected_profile_id) and selected_profile_id != previous_active_profile_id
+            effective_model_dir_changed = (
+                os.path.normcase(os.path.normpath(previous_effective_model_dir or ""))
+                != os.path.normcase(os.path.normpath(new_effective_model_dir or ""))
+            )
             migration_result = self._migrate_data_root_if_needed(current_data_root, requested_data_root)
             if migration_result is False:
                 return
@@ -539,7 +766,7 @@ class MainWindow(QMainWindow):
             if isinstance(migration_result, dict) and migration_result.get("migrated"):
                 config["pending_cleanup_data_root"] = migration_result.get("old_data_root", "")
             save_config(config)
-            self._refresh_pending_cleanup_action(config)
+            self._refresh_pending_cleanup_actions(config)
             self.settings_page.input_data_root.setText(get_configured_data_root(config))
             effective_rules = new_sampling_fps_rules if new_sampling_fps_mode == "dynamic" else ""
             fps_changed = (
@@ -555,7 +782,10 @@ class MainWindow(QMainWindow):
             )
             if (
                 previous_prefer_gpu != config["prefer_gpu"]
+                or previous_gpu_probe_unknown_keep_gpu != config["gpu_probe_unknown_keep_gpu"]
                 or previous_embedding_batch_size != config["embedding_batch_size"]
+                or profile_switched
+                or effective_model_dir_changed
             ):
                 reset_engine()
             if not config["model_dir"]:
@@ -569,32 +799,60 @@ class MainWindow(QMainWindow):
             self.check_runtime_resources(show_dialog=False)
             self._update_inference_backend_hint()
             self._update_sampling_preview()
+            if profile_switched:
+                self.refresh_library_table()
             save_message = self._build_settings_save_message(fps_changed, chunk_changed)
+            if auto_tail_rule:
+                save_message = f"{save_message}\n\n{self.texts['sampling_rules_auto_tail_added'].format(rule=auto_tail_rule)}"
+            if profile_switched:
+                save_message = f"{save_message}\n\n{self.texts['model_profile_switched_rebuild_hint']}"
             if isinstance(migration_result, dict) and migration_result.get("migrated"):
                 save_message = f"{save_message}\n\n{self._build_data_root_migration_message(migration_result, requested_data_root)}"
             self.settings_page.lbl_status.setText(save_message)
             self.show_info_dialog(self.texts["success_title"], save_message, kind="success")
+            self._set_settings_dirty(False)
         except Exception as exc:
             self.show_error_dialog(self.texts["settings_save_failed"], exc)
 
     def reset_settings(self):
         try:
+            if not self.show_confirm_dialog(
+                self.texts["confirm_title"],
+                self.texts.get("reset_settings_confirm", "Restore parameter defaults now?"),
+            ):
+                self.settings_page.lbl_status.setText(self.texts["settings_hint"])
+                return
             config = load_config()
             current_data_root = get_configured_data_root(config)
             previous_prefer_gpu = config.get("prefer_gpu", DEFAULT_CONFIG["prefer_gpu"])
+            preserved_values = {
+                "theme": config.get("theme"),
+                "language": config.get("language"),
+                "data_root": config.get("data_root"),
+                "model_dir": config.get("model_dir"),
+                "ffmpeg_path": config.get("ffmpeg_path"),
+                "models": config.get("models"),
+                "pending_cleanup_data_root": config.get("pending_cleanup_data_root"),
+                "pending_cleanup_model_dir": config.get("pending_cleanup_model_dir"),
+            }
             for key, value in DEFAULT_CONFIG.items():
-                if key in {"theme", "language"}:
+                if key in {
+                    "theme",
+                    "language",
+                    "data_root",
+                    "model_dir",
+                    "ffmpeg_path",
+                    "models",
+                    "pending_cleanup_data_root",
+                    "pending_cleanup_model_dir",
+                }:
                     continue
                 config[key] = value
-            requested_data_root = self._normalize_requested_data_root(DEFAULT_CONFIG["data_root"])
-            migration_result = self._migrate_data_root_if_needed(current_data_root, requested_data_root)
-            if migration_result is False:
-                return
-            config["data_root"] = requested_data_root
-            if isinstance(migration_result, dict) and migration_result.get("migrated"):
-                config["pending_cleanup_data_root"] = migration_result.get("old_data_root", "")
+            config.update({k: v for k, v in preserved_values.items() if v is not None})
+            requested_data_root = self._normalize_requested_data_root(str(config.get("data_root", current_data_root) or current_data_root))
+            migration_result = None
             save_config(config)
-            self._refresh_pending_cleanup_action(config)
+            self._refresh_pending_cleanup_actions(config)
             if previous_prefer_gpu != config.get("prefer_gpu", DEFAULT_CONFIG["prefer_gpu"]):
                 reset_engine()
             synced_model_dir = sync_model_dir_to_config()
@@ -676,6 +934,36 @@ class MainWindow(QMainWindow):
             self.settings_page.btn_cleanup_old_data_root.setToolTip("")
         return pending_root
 
+    def _get_pending_cleanup_model_dir(self, config=None):
+        current_config = dict(config or load_config())
+        pending = str(current_config.get("pending_cleanup_model_dir", "") or "").strip()
+        if not pending:
+            return ""
+        pending = os.path.normpath(os.path.abspath(os.path.expanduser(pending)))
+        try:
+            active = get_effective_model_dir(config=current_config)
+        except Exception:
+            return pending
+        active_norm = os.path.normpath(os.path.abspath(os.path.expanduser(str(active or "").strip())))
+        if pending and active_norm and os.path.normcase(pending) == os.path.normcase(active_norm):
+            return ""
+        return pending
+
+    def _refresh_pending_cleanup_model_action(self, config=None):
+        pending_path = self._get_pending_cleanup_model_dir(config)
+        self.settings_page.btn_cleanup_old_model_dir.setVisible(bool(pending_path))
+        if pending_path:
+            self.settings_page.btn_cleanup_old_model_dir.setToolTip(
+                self.texts["cleanup_old_model_dir_pending"].format(path=pending_path)
+            )
+        else:
+            self.settings_page.btn_cleanup_old_model_dir.setToolTip("")
+        return pending_path
+
+    def _refresh_pending_cleanup_actions(self, config=None):
+        self._refresh_pending_cleanup_action(config)
+        self._refresh_pending_cleanup_model_action(config)
+
     def cleanup_old_data_root(self):
         config = load_config()
         current_data_root = get_configured_data_root(config)
@@ -685,7 +973,7 @@ class MainWindow(QMainWindow):
                 message = self.texts["cleanup_old_data_root_unavailable"]
                 self.settings_page.lbl_status.setText(message)
                 self.show_info_dialog(self.texts["warning_title"], message, kind="warning")
-                self._refresh_pending_cleanup_action(config)
+                self._refresh_pending_cleanup_actions(config)
                 return
 
             if os.path.normcase(target_root) == os.path.normcase(current_data_root):
@@ -716,7 +1004,7 @@ class MainWindow(QMainWindow):
             result = cleanup_old_data_root_service(target_root, active_data_root=current_data_root)
             config.pop("pending_cleanup_data_root", None)
             save_config(config)
-            self._refresh_pending_cleanup_action(config)
+            self._refresh_pending_cleanup_actions(config)
             if result.get("cleaned"):
                 message = self.texts["cleanup_old_data_root_done"].format(path=result.get("old_data_dir", target_root))
                 self.settings_page.lbl_status.setText(message)
@@ -728,6 +1016,67 @@ class MainWindow(QMainWindow):
             self.show_info_dialog(self.texts["warning_title"], message, kind="warning")
         except Exception as exc:
             self.show_error_dialog(self.texts["cleanup_old_data_root_failed"], exc)
+
+    def cleanup_old_model_dir(self):
+        config = load_config()
+        target_dir = self._get_pending_cleanup_model_dir(config)
+        try:
+            active_dir = get_effective_model_dir(config=config)
+        except Exception as exc:
+            self.show_error_dialog(self.texts["cleanup_old_model_dir_failed"], exc)
+            return
+        try:
+            if not target_dir:
+                message = self.texts["cleanup_old_model_dir_unavailable"]
+                self.settings_page.lbl_status.setText(message)
+                self.show_info_dialog(self.texts["warning_title"], message, kind="warning")
+                self._refresh_pending_cleanup_actions(config)
+                return
+
+            if os.path.normcase(target_dir) == os.path.normcase(os.path.normpath(active_dir)):
+                message = self.texts["cleanup_old_model_dir_active_error"].format(path=target_dir)
+                self.settings_page.lbl_status.setText(message)
+                self.show_info_dialog(self.texts["warning_title"], message, kind="warning")
+                return
+
+            if not self.show_confirm_dialog(
+                self.texts["confirm_title"],
+                self.texts["cleanup_old_model_dir_confirm"].format(path=target_dir),
+                kind="warning",
+            ):
+                self.settings_page.lbl_status.setText(self.texts["settings_hint"])
+                return
+
+            if not self.show_confirm_dialog(
+                self.texts["confirm_title"],
+                self.texts["cleanup_old_model_dir_confirm_again"].format(
+                    path=target_dir,
+                    active_path=active_dir,
+                ),
+                kind="warning",
+            ):
+                self.settings_page.lbl_status.setText(self.texts["settings_hint"])
+                return
+
+            result = cleanup_old_model_dir_service(target_dir, active_model_dir=active_dir)
+            config.pop("pending_cleanup_model_dir", None)
+            save_config(config)
+            self._refresh_pending_cleanup_actions(config)
+            if result.get("cleaned"):
+                message = self.texts["cleanup_old_model_dir_done"].format(
+                    path=result.get("old_model_dir", target_dir)
+                )
+                self.settings_page.lbl_status.setText(message)
+                self.show_info_dialog(self.texts["success_title"], message, kind="success")
+                return
+
+            message = self.texts["cleanup_old_model_dir_missing"].format(
+                path=result.get("old_model_dir", target_dir)
+            )
+            self.settings_page.lbl_status.setText(message)
+            self.show_info_dialog(self.texts["warning_title"], message, kind="warning")
+        except Exception as exc:
+            self.show_error_dialog(self.texts["cleanup_old_model_dir_failed"], exc)
 
     def _browse_ffmpeg_path(self):
         current_path = self.settings_page.input_ffmpeg_path.text().strip()
@@ -753,6 +1102,51 @@ class MainWindow(QMainWindow):
         if not selected_path:
             return
         self.settings_page.input_model_dir.setText(os.path.normpath(selected_path))
+
+    def _migrate_model_root(self):
+        t = self.texts
+        try:
+            config = load_config()
+            source = get_effective_model_dir(config=config)
+        except Exception as exc:
+            self.show_error_dialog(t["model_root_move_failed"], exc)
+            return
+        if not source or not os.path.isdir(source):
+            self.show_info_dialog(t["warning_title"], t["model_root_move_source_missing"], kind="warning")
+            return
+        initial = source
+        dest = QFileDialog.getExistingDirectory(self, t["model_root_move_pick_target"], initial)
+        if not dest:
+            return
+        dest = os.path.normpath(os.path.abspath(os.path.expanduser(dest)))
+        if os.path.normcase(dest) == os.path.normcase(source):
+            self.show_info_dialog(t["warning_title"], t["model_root_move_same_path"], kind="warning")
+            return
+        if not self.show_confirm_dialog(t["confirm_title"], t["model_root_move_confirm"].format(source=source, dest=dest)):
+            self.settings_page.lbl_status.setText(t["settings_hint"])
+            return
+        try:
+            result = migrate_model_root(dest)
+        except Exception as exc:
+            self.show_error_dialog(t["model_root_move_failed"], exc)
+            return
+        if not result.get("migrated") and result.get("reason") == "same_path":
+            return
+        self.load_settings_values()
+        synced = sync_model_dir_to_config()
+        if synced:
+            self.settings_page.input_model_dir.setText(synced)
+        self.check_runtime_resources(show_dialog=False)
+        self._update_inference_backend_hint()
+        old_path = str(result.get("old_model_dir", "") or "")
+        new_path = str(result.get("new_model_dir", "") or "")
+        detail = str(t.get("model_root_move_success_detail") or "").strip()
+        if detail and old_path and new_path:
+            msg = detail.format(old_path=old_path, new_path=new_path)
+        else:
+            msg = t["model_root_move_success"].format(path=new_path or dest)
+        self.settings_page.lbl_status.setText(msg)
+        self.show_info_dialog(t["success_title"], msg, kind="success")
 
     def _bind_sampling_preview_signals(self):
         if getattr(self, "_sampling_preview_bound", False):
@@ -796,6 +1190,8 @@ class MainWindow(QMainWindow):
         current_rules_text = self.settings_page.get_sampling_fps_rules_text()
         rules_text = normalize_sampling_fps_rules_text(current_rules_text)
         sampling_fps_mode = normalize_sampling_fps_mode(self.settings_page.get_sampling_fps_mode())
+        if sampling_fps_mode == "dynamic":
+            rules_text = ensure_sampling_fps_rules_open_tail(rules_text, default_tail_fps=0.5)
         default_hint = self.texts["setting_sampling_fps_rules_hint"]
         if current_rules_text != rules_text:
             self.settings_page.set_sampling_fps_rules_text(rules_text)
@@ -804,7 +1200,7 @@ class MainWindow(QMainWindow):
             self.settings_page.set_sampling_rules_error_state(False)
             return
 
-        is_valid, _ = validate_sampling_fps_rules(rules_text)
+        is_valid, _ = validate_sampling_fps_rules_full_coverage(rules_text)
         if rules_text and not is_valid:
             self.settings_page.set_sampling_rules_error_state(True)
             return
@@ -815,7 +1211,9 @@ class MainWindow(QMainWindow):
         base_fps = float(self.settings_page.input_fps.value())
         sampling_fps_mode = normalize_sampling_fps_mode(self.settings_page.get_sampling_fps_mode())
         rules_text = normalize_sampling_fps_rules_text(self.settings_page.get_sampling_fps_rules_text())
-        rules_valid, _ = validate_sampling_fps_rules(rules_text)
+        if sampling_fps_mode == "dynamic":
+            rules_text = ensure_sampling_fps_rules_open_tail(rules_text, default_tail_fps=0.5)
+        rules_valid, _ = validate_sampling_fps_rules_full_coverage(rules_text)
         if sampling_fps_mode == "dynamic" and rules_text and not rules_valid:
             return
         samples = [
@@ -1062,7 +1460,7 @@ class MainWindow(QMainWindow):
     def cleanup_missing_library_vectors(self):
         try:
             config = load_config()
-            meta = load_meta(config["meta_file"])
+            meta = load_model_metadata(config=config)
             missing_entries = list(list_missing_library_files(meta, config))
         except Exception as exc:
             self.show_error_dialog(self.texts["library_load_failed"], exc)
@@ -1202,6 +1600,7 @@ class MainWindow(QMainWindow):
             self.indexing_controller.start(
                 **start_kwargs,
             )
+            self._refresh_search_session_hint()
         except Exception as exc:
             self.show_error_dialog(self.texts["index_start_failed"], exc)
 
@@ -1249,10 +1648,44 @@ class MainWindow(QMainWindow):
         if not rebuild_global_assets:
             status_text = self._with_global_index_notice(status_text)
         self.library_page.lbl_status.setText(status_text)
+        self._refresh_search_session_hint()
         self._show_index_issue_guidance(issues or [])
         if self._close_when_indexing_stops:
             self._close_when_indexing_stops = False
             self.close()
+
+    def _refresh_search_session_hint(self):
+        self.search_page.session_hint.setText(self.texts.get("workspace_hint", ""))
+        indexing_running = self.indexing_controller.is_running()
+        self.search_page.indexing_notice.setVisible(indexing_running)
+        if indexing_running:
+            self._start_search_indexing_notice_animation()
+        else:
+            self._stop_search_indexing_notice_animation()
+
+    def _start_search_indexing_notice_animation(self):
+        if self._search_indexing_notice_effect is None:
+            effect = QGraphicsOpacityEffect(self.search_page.indexing_notice)
+            effect.setOpacity(1.0)
+            self.search_page.indexing_notice.setGraphicsEffect(effect)
+            self._search_indexing_notice_effect = effect
+        if self._search_indexing_notice_animation is None:
+            animation = QPropertyAnimation(self._search_indexing_notice_effect, b"opacity", self)
+            animation.setStartValue(1.0)
+            animation.setEndValue(0.55)
+            animation.setDuration(900)
+            animation.setEasingCurve(QEasingCurve.InOutSine)
+            animation.setLoopCount(-1)
+            self._search_indexing_notice_animation = animation
+        if self._search_indexing_notice_animation.state() != QPropertyAnimation.Running:
+            self._search_indexing_notice_animation.start()
+
+    def _stop_search_indexing_notice_animation(self):
+        animation = self._search_indexing_notice_animation
+        if animation is not None and animation.state() == QPropertyAnimation.Running:
+            animation.stop()
+        if self._search_indexing_notice_effect is not None:
+            self._search_indexing_notice_effect.setOpacity(1.0)
 
     def _handle_indexing_error(self, error_text):
         detail = str(error_text or "").strip()
@@ -1496,6 +1929,30 @@ class MainWindow(QMainWindow):
         controller = getattr(self, "preview_controller", None)
         has_preview = controller is not None and controller.get_current_preview_context() is not None
         self.search_page.btn_expand_preview.setEnabled(has_preview)
+        self._update_preview_action_button_styles()
+
+    def _update_preview_action_button_styles(self):
+        controller = getattr(self, "preview_controller", None)
+        has_preview = controller is not None and controller.get_current_preview_context() is not None
+        has_export_tasks = bool(self._preview_export_tasks)
+        self._set_button_object_name(
+            self.search_page.btn_expand_preview,
+            "PrimaryButton" if has_preview else "GhostButton",
+        )
+        self._set_button_object_name(
+            self.search_page.btn_export_tasks,
+            "PrimaryButton" if has_export_tasks else "GhostButton",
+        )
+
+    @staticmethod
+    def _set_button_object_name(button, object_name):
+        if button.objectName() == object_name:
+            return
+        button.setObjectName(object_name)
+        style = button.style()
+        style.unpolish(button)
+        style.polish(button)
+        button.update()
 
     def _handle_preview_export_status(self, state, text):
         if state in {"queued", "running", "succeeded", "failed", "cancelled"}:
@@ -1523,6 +1980,7 @@ class MainWindow(QMainWindow):
                 "Export queued. Running: {running} | Waiting: {queued}",
             ).format(running=running_count, queued=queued_count)
         )
+        self._update_preview_action_button_styles()
         self._start_next_preview_exports()
 
     def _start_next_preview_exports(self):
@@ -1590,6 +2048,7 @@ class MainWindow(QMainWindow):
                     queued=len(self._preview_export_queue),
                 )
             )
+        self._update_preview_action_button_styles()
 
     def _cancel_all_preview_exports(self, timeout_ms=3000):
         self._preview_export_queue.clear()
@@ -1610,6 +2069,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         self._preview_export_active.clear()
+        self._update_preview_action_button_styles()
         return True
 
     def show_preview_export_tasks(self):
@@ -1890,6 +2350,269 @@ class MainWindow(QMainWindow):
         for target_dir in target_dirs:
             open_folder_in_explorer(target_dir)
 
+    def parse_model_packages(self, selected_files=None, scan_only=False):
+        config = load_config()
+        try:
+            model_root = self._resolve_model_package_root(config)
+            if not model_root:
+                raise ValueError("Active profile model_dir is empty.")
+
+            if selected_files is not None:
+                selected_files = [str(path or "").strip() for path in (selected_files or []) if str(path or "").strip()]
+            elif not scan_only:
+                selected_files, _ = QFileDialog.getOpenFileNames(
+                    self,
+                    self.texts.get("model_upload_package", "Upload Model Package"),
+                    "",
+                    "Runtime Package (*.zip *.sha256 *.exe);;All Files (*.*)",
+                )
+                selected_files = [str(path or "").strip() for path in (selected_files or []) if str(path or "").strip()]
+            else:
+                selected_files = []
+        except Exception as exc:
+            self.show_error_dialog(self.texts.get("parse_model_package_failed", "Failed to parse model package."), exc)
+            return
+        ffmpeg_files = [
+            path for path in selected_files
+            if path.lower().endswith(".exe") and os.path.basename(path).strip().lower() == "ffmpeg.exe"
+        ]
+        model_files = [path for path in selected_files if not path.lower().endswith(".exe")]
+        ffmpeg_updated = False
+        ffmpeg_error = ""
+        if ffmpeg_files:
+            try:
+                self._import_ffmpeg_executable(ffmpeg_files[0], config)
+                ffmpeg_updated = True
+            except Exception as exc:
+                ffmpeg_error = str(exc)
+        if ffmpeg_error:
+            self.show_error_dialog(
+                self.texts.get("parse_model_package_failed", "Failed to parse model package."),
+                ffmpeg_error,
+            )
+            return
+        self._ffmpeg_imported_with_package = bool(ffmpeg_updated)
+        if not model_files and not scan_only:
+            self.check_runtime_resources(show_dialog=False)
+            dialog = self._active_model_import_dialog()
+            if dialog is not None:
+                status = self.runtime_resource_controller.get_status_snapshot()
+                if status.get("resources_ready"):
+                    dialog.set_manage_state()
+                else:
+                    dialog.set_missing_state(
+                        status.get("display_files", []),
+                        "",
+                        download_enabled=bool(status.get("download_enabled", False)),
+                    )
+            self._update_inference_backend_hint()
+            if ffmpeg_updated:
+                self.show_info_dialog(
+                    self.texts["success_title"],
+                    self.texts.get("ffmpeg_import_done", "FFmpeg imported successfully."),
+                    kind="success",
+                )
+            return
+        self._start_model_package_import(model_root, model_files, scan_only)
+
+    def _import_ffmpeg_executable(self, ffmpeg_file, config):
+        source_path = os.path.normpath(os.path.abspath(os.fspath(ffmpeg_file)))
+        if os.path.basename(source_path).strip().lower() != "ffmpeg.exe":
+            raise RuntimeError("Selected executable is not ffmpeg.exe")
+        if not os.path.exists(source_path):
+            raise RuntimeError(f"FFmpeg file not found: {source_path}")
+        target_path = os.path.normpath(get_configured_ffmpeg_target_path(config=config))
+        target_dir = os.path.dirname(target_path)
+        if target_dir:
+            os.makedirs(target_dir, exist_ok=True)
+        shutil.copy2(source_path, target_path)
+        config["ffmpeg_path"] = target_path
+        save_config(config)
+
+    def _resolve_model_package_root(self, config):
+        config_root = str(config.get("model_dir", "") or "").strip()
+        active_root = str(get_effective_model_dir(config=config) or "").strip()
+        model_root = config_root or active_root
+        if not model_root:
+            return ""
+        model_root = os.path.normpath(os.path.abspath(os.fspath(model_root)))
+        # Compatibility: if runtime.model_dir was accidentally saved as provider/variant leaf, step back to root.
+        try:
+            profile = get_active_model_profile(config=config)
+            provider = str(profile.get("provider", "") or "").strip()
+            runtime = dict(profile.get("runtime") or {})
+            variant = str(runtime.get("model_variant", "") or profile.get("model_variant", "") or "").strip()
+            if provider and variant:
+                provider_dir = "openai-clip" if provider == "clip_onnx" else ("siglip2" if provider == "siglip2_onnx" else provider.replace("_", "-"))
+                expected_tail = os.path.normcase(os.path.normpath(os.path.join(provider_dir, variant)))
+                if os.path.normcase(model_root).endswith(expected_tail):
+                    parent = os.path.dirname(os.path.dirname(model_root))
+                    if parent:
+                        model_root = parent
+        except Exception:
+            pass
+        return model_root
+
+    def _start_model_package_import(self, model_root, selected_files, scan_only):
+        if self._model_package_import_worker and self._model_package_import_worker.isRunning():
+            self.show_info_dialog(
+                self.texts["warning_title"],
+                self.texts.get("model_import_in_progress", "Model package import is already running."),
+                kind="warning",
+            )
+            return
+        worker = ModelPackageImportWorker(model_root, selected_files=selected_files, scan_only=scan_only)
+        self._model_package_import_worker = worker
+        worker.progress_signal.connect(self._on_model_package_import_progress)
+        worker.finished_signal.connect(self._on_model_package_import_finished)
+        worker.error_signal.connect(self._on_model_package_import_error)
+        worker.finished.connect(lambda active_worker=worker: self._cleanup_model_package_import_worker(active_worker))
+        self._on_model_package_import_progress(0, self.texts.get("model_download_starting", "Starting..."))
+        worker.start()
+
+    def _active_model_import_dialog(self):
+        dialog = getattr(self.runtime_resource_controller, "dialog", None)
+        if dialog is None or not dialog.isVisible():
+            return None
+        return dialog
+
+    def _on_model_package_import_progress(self, value, text):
+        dialog = self._active_model_import_dialog()
+        if dialog is not None:
+            dialog.set_import_progress_state(max(0, min(100, int(value))), str(text or ""))
+        else:
+            self.settings_page.lbl_status.setText(str(text or ""))
+
+    def _on_model_package_import_finished(self, result):
+        imported = int(result.get("imported", 0))
+        updated = int(result.get("updated", 0))
+        errors = [str(item) for item in result.get("errors", []) if str(item).strip()]
+        checksum_verified_count = int(result.get("checksum_verified_count", 0))
+        dialog = self._active_model_import_dialog()
+        if imported or updated:
+            self.load_settings_values()
+            self.check_runtime_resources(show_dialog=False)
+            message = self.texts.get("parse_model_package_done", "Model packages parsed: +{imported}, updated {updated}.").format(
+                imported=imported,
+                updated=updated,
+            )
+            if checksum_verified_count > 0:
+                message = f"{message}\n\nChecksums verified: {checksum_verified_count}"
+            if self._ffmpeg_imported_with_package:
+                message = f"{message}\n\n{self.texts.get('ffmpeg_import_done', 'FFmpeg imported successfully.')}"
+            if dialog is not None:
+                dialog.set_import_success_state(
+                    self.texts.get("parse_model_package_done", "Model packages parsed: +{imported}, updated {updated}.").format(
+                        imported=imported,
+                        updated=updated,
+                    )
+                )
+            if errors:
+                message = f"{message}\n\n" + "\n".join(errors[:3])
+                self.show_info_dialog(self.texts["warning_title"], message, kind="warning")
+            else:
+                self.show_info_dialog(self.texts["success_title"], message, kind="success")
+            self._ffmpeg_imported_with_package = False
+            return
+        if errors:
+            if dialog is not None:
+                status = self.runtime_resource_controller.get_status_snapshot()
+                dialog.set_error_state(
+                    "\n".join(errors[:3]),
+                    status["display_files"],
+                    "",
+                    download_enabled=status["download_enabled"],
+                )
+            self.show_info_dialog(self.texts["warning_title"], "\n".join(errors[:3]), kind="warning")
+            self._ffmpeg_imported_with_package = False
+            return
+        if dialog is not None:
+            dialog.set_manage_state()
+        self.show_info_dialog(
+            self.texts["warning_title"],
+            self.texts.get("parse_model_package_none", "No model_manifest.json found."),
+            kind="warning",
+        )
+        self._ffmpeg_imported_with_package = False
+
+    def _on_model_package_import_error(self, error_text):
+        dialog = self._active_model_import_dialog()
+        if dialog is not None:
+            status = self.runtime_resource_controller.get_status_snapshot()
+            dialog.set_error_state(
+                str(error_text or ""),
+                status["display_files"],
+                "",
+                download_enabled=status["download_enabled"],
+            )
+        self.show_error_dialog(
+            self.texts.get("parse_model_package_failed", "Failed to parse model package."),
+            error_text,
+        )
+        self._ffmpeg_imported_with_package = False
+
+    def _cleanup_model_package_import_worker(self, worker):
+        if self._model_package_import_worker is worker:
+            self._model_package_import_worker = None
+        try:
+            worker.deleteLater()
+        except Exception:
+            pass
+
+    def remove_current_model_profile(self):
+        selected_profile_id = str(self.settings_page.input_active_model_profile.currentData() or "").strip()
+        if not selected_profile_id:
+            self.show_info_dialog(
+                self.texts["warning_title"],
+                self.texts.get("remove_model_profile_none", "No model profile is selected."),
+                kind="warning",
+            )
+            return
+        config = load_config()
+        models = dict(config.get("models") or {})
+        profiles = [item for item in models.get("profiles", []) if isinstance(item, dict)]
+        remaining_after_remove = max(0, len(profiles) - 1)
+        confirm_text = self.texts.get(
+            "remove_model_profile_confirm",
+            "Remove the current model profile and delete its model resources and model-scoped data?",
+        )
+        if remaining_after_remove == 0:
+            confirm_text = (
+                f"{confirm_text}\n\n"
+                + self.texts.get(
+                    "remove_model_profile_last_warning",
+                    "This is the last available model profile. After removal, no model will be available until you import one.",
+                )
+            )
+        if not self.show_confirm_dialog(self.texts["confirm_title"], confirm_text):
+            return
+        try:
+            result = remove_model_profile(selected_profile_id)
+            reset_engine()
+            self.load_settings_values()
+            self.check_runtime_resources(show_dialog=False)
+            self._update_inference_backend_hint()
+            self.refresh_library_table()
+            active_profile = str(result.get("active_profile", "") or "").strip()
+            removed_resource_dir = str(result.get("removed_resource_dir", "") or "").strip()
+            removed_asset_dir = str(result.get("removed_asset_dir", "") or "").strip()
+            summary = self.texts.get(
+                "remove_model_profile_done",
+                "Model removed. Active profile: {active}.",
+            ).format(active=active_profile or "none")
+            details = []
+            if removed_resource_dir:
+                details.append(f"Resource dir: {removed_resource_dir}")
+            if removed_asset_dir:
+                details.append(f"Data dir: {removed_asset_dir}")
+            message = summary if not details else f"{summary}\n\n" + "\n".join(details)
+            self.show_info_dialog(self.texts["success_title"], message, kind="success")
+        except Exception as exc:
+            self.show_error_dialog(
+                self.texts.get("remove_model_profile_failed", "Failed to remove model profile."),
+                exc,
+            )
+
     def _update_inference_backend_hint(self):
         config = load_config()
         status = get_engine_runtime_status()
@@ -1899,18 +2622,11 @@ class MainWindow(QMainWindow):
         if status["initialized"]:
             backend_text = status["backend"] or ""
             if status["warning"]:
-                issue_text = self.texts["setting_runtime_issue_unknown"]
-                if status.get("issue") == "directml":
-                    issue_text = self.texts["setting_runtime_issue_directml"]
-                elif status.get("issue") == "directx":
-                    issue_text = self.texts["setting_runtime_issue_directx"]
-                elif status.get("issue") == "windows":
-                    issue_text = self.texts["setting_runtime_issue_windows"]
-                elif status.get("issue") == "windows_version":
-                    issue_text = self.texts["setting_runtime_issue_windows_version"]
-                elif status.get("issue") == "msvc":
-                    issue_text = self.texts["setting_runtime_issue_msvc"]
-                backend_text = self.texts["setting_inference_cpu_issue"].format(issue=issue_text)
+                issue_text = self._build_runtime_issue_summary(status)
+                if str(status.get("backend") or "").upper() == "GPU":
+                    backend_text = f"{backend_text} ({issue_text})".strip()
+                else:
+                    backend_text = self.texts["setting_inference_cpu_issue"].format(issue=issue_text)
                 show_help_link = True
                 self.settings_page.hint_inference_backend.setProperty("state", "warn")
             elif str(status["backend"]).upper() == "GPU":
@@ -1932,6 +2648,139 @@ class MainWindow(QMainWindow):
         data_label = self._build_data_storage_status_text(config)
         self.settings_page.set_runtime_status_texts(backend_label, ffmpeg_label, data_label)
 
+    def _build_runtime_issue_summary(self, status):
+        issue = str(status.get("issue") or "").strip()
+        diagnostics = dict(status.get("diagnostics") or {})
+        issue_text = self._get_runtime_issue_text(issue or diagnostics.get("issue"))
+
+        missing_dlls = [str(item) for item in diagnostics.get("missing_dlls") or [] if str(item).strip()]
+        if missing_dlls:
+            return f"{issue_text}: {', '.join(missing_dlls)}"
+
+        missing_msvc_dlls = [str(item) for item in diagnostics.get("missing_msvc_dlls") or [] if str(item).strip()]
+        if missing_msvc_dlls:
+            return f"{issue_text}: {', '.join(missing_msvc_dlls)}"
+
+        available_providers = [str(item) for item in diagnostics.get("available_providers") or [] if str(item).strip()]
+        if issue == "directml" and available_providers:
+            return f"{issue_text}: {', '.join(available_providers)}"
+
+        return issue_text
+
+    def _build_runtime_diagnostics_detail(self, status):
+        diagnostics = dict(status.get("diagnostics") or {})
+        lines = []
+        backend = str(status.get("backend") or "").strip() or self.texts.get("setting_inference_uninitialized", "Not initialized")
+        lines.append(f"Backend: {backend}")
+        lines.append(f"Initialized: {bool(status.get('initialized'))}")
+        lines.append(f"Prefer GPU: {bool(status.get('prefer_gpu'))}")
+        issue_text = self._build_runtime_issue_summary(status)
+        if issue_text:
+            lines.append(issue_text)
+
+        missing_dlls = [str(item) for item in diagnostics.get("missing_dlls") or [] if str(item).strip()]
+        if missing_dlls:
+            lines.append(self.texts.get("setting_runtime_detail_missing_dlls", "Missing DLLs: {items}").format(items=", ".join(missing_dlls)))
+
+        missing_msvc_dlls = [str(item) for item in diagnostics.get("missing_msvc_dlls") or [] if str(item).strip()]
+        if missing_msvc_dlls:
+            lines.append(self.texts.get("setting_runtime_detail_missing_msvc_dlls", "Missing VC++ DLLs: {items}").format(items=", ".join(missing_msvc_dlls)))
+
+        available_providers = [str(item) for item in diagnostics.get("available_providers") or [] if str(item).strip()]
+        if available_providers:
+            lines.append(self.texts.get("setting_runtime_detail_available_providers", "Available providers: {items}").format(items=", ".join(available_providers)))
+
+        windows_build = diagnostics.get("windows_build")
+        if windows_build:
+            lines.append(self.texts.get("setting_runtime_detail_windows_build", "Windows build: {value}").format(value=windows_build))
+
+        probe_stage = str(diagnostics.get("probe_stage") or "").strip()
+        if probe_stage:
+            probe_stage_key = f"setting_runtime_probe_stage_{probe_stage}"
+            probe_stage_text = self.texts.get(probe_stage_key, probe_stage)
+            lines.append(self.texts.get("setting_runtime_detail_probe_stage", "Failure stage: {value}").format(value=probe_stage_text))
+
+        probe_exception_type = str(diagnostics.get("probe_exception_type") or "").strip()
+        probe_exception_message = str(diagnostics.get("probe_exception_message") or "").strip()
+        probe_exception = ": ".join(part for part in [probe_exception_type, probe_exception_message] if part)
+        if probe_exception:
+            lines.append(self.texts.get("setting_runtime_detail_probe_exception", "Exception: {value}").format(value=probe_exception))
+
+        failure_kind = str(diagnostics.get("failure_kind") or "").strip()
+        if failure_kind:
+            lines.append(f"Failure kind: {failure_kind}")
+
+        active_providers = diagnostics.get("active_providers")
+        if isinstance(active_providers, dict) and active_providers:
+            lines.append(f"Active providers: {json.dumps(active_providers, ensure_ascii=False)}")
+
+        return "\n".join(line for line in lines if line)
+
+    def _build_runtime_diagnostics_payload(self, status):
+        normalized_status = dict(status or {})
+        return {
+            "backend": normalized_status.get("backend", ""),
+            "initialized": bool(normalized_status.get("initialized")),
+            "prefer_gpu": normalized_status.get("prefer_gpu"),
+            "issue": normalized_status.get("issue", ""),
+            "warning": normalized_status.get("warning", ""),
+            "summary": self._build_runtime_issue_summary(normalized_status),
+            "detail": self._build_runtime_diagnostics_detail(normalized_status),
+            "diagnostics": dict(normalized_status.get("diagnostics") or {}),
+        }
+
+    def _get_runtime_issue_text(self, issue):
+        issue_key_map = {
+            "directml": "setting_runtime_issue_directml",
+            "directx": "setting_runtime_issue_directx",
+            "windows": "setting_runtime_issue_windows",
+            "windows_version": "setting_runtime_issue_windows_version",
+            "msvc": "setting_runtime_issue_msvc",
+            "probe_timeout": "setting_runtime_issue_probe_timeout",
+            "probe_launch_failed": "setting_runtime_issue_probe_launch_failed",
+            "visual_provider_not_activated": "setting_runtime_issue_visual_provider_not_activated",
+            "text_provider_not_activated": "setting_runtime_issue_text_provider_not_activated",
+            "visual_probe_failed": "setting_runtime_issue_visual_probe_failed",
+            "text_probe_failed": "setting_runtime_issue_text_probe_failed",
+            "session_init_failed": "setting_runtime_issue_session_init_failed",
+        }
+        text_key = issue_key_map.get(str(issue or "").strip(), "setting_runtime_issue_unknown")
+        return self.texts.get(text_key, self.texts.get("setting_runtime_issue_unknown", "DirectML runtime"))
+
+    def show_runtime_diagnostics(self):
+        status = get_engine_runtime_status()
+        payload = self._build_runtime_diagnostics_payload(status)
+        lines = []
+        if payload["summary"]:
+            lines.append(payload["summary"])
+        if payload["detail"] and payload["detail"] != payload["summary"]:
+            lines.append(payload["detail"])
+        if payload["warning"]:
+            lines.append(payload["warning"])
+        text = "\n\n".join(line for line in lines if line).strip()
+        if not text:
+            text = json.dumps(payload, ensure_ascii=False, indent=2)
+        dialog = AppMessageDialog(
+            self.texts.get("setting_show_runtime_diagnostics_title", "GPU diagnostics"),
+            text,
+            kind="info",
+            parent=self,
+            is_dark=self.is_dark_mode,
+            language=self.language,
+            confirm=True,
+            cancel_text=self.texts["close"],
+            confirm_text=self.texts.get("setting_copy_runtime_diagnostics", "Copy GPU diagnostics"),
+        )
+        dialog.exec()
+        if dialog.confirmed():
+            QApplication.clipboard().setText(json.dumps(payload, ensure_ascii=False, indent=2))
+            self.settings_page.lbl_status.setText(
+                self.texts.get(
+                    "setting_copy_runtime_diagnostics_done",
+                    self.texts.get("details_copy_done", "Copied to clipboard."),
+                )
+            )
+
     def _build_data_storage_status_text(self, config):
         normalized_config = dict(config or {})
         data_root = str(normalized_config.get("data_root", "") or "").strip()
@@ -1950,6 +2799,21 @@ class MainWindow(QMainWindow):
 
     def start_runtime_resource_download(self):
         self.runtime_resource_controller.start_download()
+
+    def open_runtime_resource_dialog(self):
+        self.runtime_resource_controller.show_manage_dialog()
+
+    def open_model_package_download_page(self):
+        app_meta = get_app_meta()
+        target_url = str(app_meta.get("model_manifest_url", "") or "").strip()
+        if not target_url:
+            self.show_info_dialog(
+                self.texts["warning_title"],
+                self.texts["download_models_unavailable"],
+                kind="warning",
+            )
+            return
+        webbrowser.open(target_url)
 
     def start_network_search(self):
         if not self.check_runtime_resources():
@@ -2354,3 +3218,28 @@ class MainWindow(QMainWindow):
             self.link_page.lbl_build_status.setText(status_text)
             self.link_page.lbl_search_status.setText(status_text)
             self.library_page.lbl_status.setText(status_text)
+        self._update_runtime_banner(status)
+
+    def _update_runtime_banner(self, status):
+        model_ready = bool(status.get("model_ready"))
+        ffmpeg_ready = bool(status.get("ffmpeg_ready"))
+        if (not model_ready) and (not ffmpeg_ready):
+            missing_text = self.texts.get("models_missing_generic_both", "Model and FFmpeg are not ready.")
+        elif not model_ready:
+            missing_text = self.texts.get("models_missing_generic_model", "Model resources are missing.")
+        elif not ffmpeg_ready:
+            missing_text = self.texts.get("models_missing_generic_ffmpeg", "FFmpeg is missing.")
+        else:
+            missing_text = self.texts.get("models_missing_generic_unknown", "Runtime resources are incomplete.")
+        banner_text = self.texts.get("runtime_banner_missing", "Runtime resources are not ready: {missing}").format(missing=missing_text)
+        action_text = self.texts.get("runtime_banner_open_import", "Go Import")
+        for page in (self.search_page, self.link_page, self.library_page, self.settings_page):
+            banner = page.header.runtime_banner
+            banner_label = page.header.runtime_banner_text
+            banner_btn = page.header.runtime_banner_action
+            banner_btn.setText(action_text)
+            if status.get("resources_ready"):
+                banner.hide()
+            else:
+                banner_label.setText(banner_text)
+                banner.show()

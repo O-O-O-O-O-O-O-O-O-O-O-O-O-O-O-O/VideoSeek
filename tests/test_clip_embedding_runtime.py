@@ -127,6 +127,20 @@ class ClipEmbeddingRuntimeTests(unittest.TestCase):
 
         self.assertEqual(issue, "directml")
 
+    def test_build_gpu_runtime_diagnostics_reports_missing_directml_provider(self):
+        with (
+            patch("src.core.clip_embedding._is_windows", return_value=True),
+            patch("src.core.clip_embedding._is_windows_10_1903_or_newer", return_value=True),
+            patch("src.core.clip_embedding._get_windows_build_number", return_value=22631),
+            patch("src.core.clip_embedding._is_directml_provider_available", return_value=False),
+            patch("src.core.clip_embedding._get_available_provider_names", return_value=["CPUExecutionProvider"]),
+        ):
+            diagnostics = clip_embedding._build_gpu_runtime_diagnostics()
+
+        self.assertEqual(diagnostics["issue"], "directml")
+        self.assertEqual(diagnostics["available_providers"], ["CPUExecutionProvider"])
+        self.assertEqual(diagnostics["windows_build"], None)
+
     def test_detect_gpu_runtime_issue_reports_missing_directx_runtime(self):
         with (
             patch("src.core.clip_embedding._is_windows", return_value=True),
@@ -138,6 +152,72 @@ class ClipEmbeddingRuntimeTests(unittest.TestCase):
 
         self.assertEqual(issue, "directx")
 
+    def test_build_gpu_runtime_diagnostics_reports_missing_runtime_dlls(self):
+        def fake_can_load(name):
+            return name.lower() == "d3d12.dll"
+
+        with (
+            patch("src.core.clip_embedding._is_windows", return_value=True),
+            patch("src.core.clip_embedding._is_windows_10_1903_or_newer", return_value=True),
+            patch("src.core.clip_embedding._get_windows_build_number", return_value=22631),
+            patch("src.core.clip_embedding._is_directml_provider_available", return_value=True),
+            patch("src.core.clip_embedding._get_available_provider_names", return_value=["DmlExecutionProvider", "CPUExecutionProvider"]),
+            patch("src.core.clip_embedding._can_load_windows_dll", side_effect=fake_can_load),
+        ):
+            diagnostics = clip_embedding._build_gpu_runtime_diagnostics()
+
+        self.assertEqual(diagnostics["issue"], "directx")
+        self.assertEqual(diagnostics["missing_dlls"], ["DirectML.dll"])
+        self.assertIn("d3d12.dll", diagnostics["loaded_dlls"])
+
+    def test_build_gpu_runtime_diagnostics_reports_missing_msvc_runtime_dlls(self):
+        def fake_can_load(name):
+            return name in {"DirectML.dll", "d3d12.dll", "vcruntime140.dll"}
+
+        with (
+            patch("src.core.clip_embedding._is_windows", return_value=True),
+            patch("src.core.clip_embedding._is_windows_10_1903_or_newer", return_value=True),
+            patch("src.core.clip_embedding._get_windows_build_number", return_value=22631),
+            patch("src.core.clip_embedding._is_directml_provider_available", return_value=True),
+            patch("src.core.clip_embedding._get_available_provider_names", return_value=["DmlExecutionProvider", "CPUExecutionProvider"]),
+            patch("src.core.clip_embedding._can_load_windows_dll", side_effect=fake_can_load),
+        ):
+            diagnostics = clip_embedding._build_gpu_runtime_diagnostics()
+
+        self.assertEqual(diagnostics["issue"], "msvc")
+        self.assertEqual(diagnostics["missing_msvc_dlls"], ["vcruntime140_1.dll", "msvcp140.dll"])
+
+    @patch("src.core.clip_embedding.ensure_model_files", return_value={"clip_visual.onnx": "visual.onnx", "clip_text.onnx": "text.onnx"})
+    @patch("src.core.clip_embedding.tokenize", return_value=np.zeros((1, 77), dtype=np.int32))
+    @patch("src.core.clip_embedding._build_gpu_runtime_diagnostics")
+    def test_run_isolated_gpu_probe_success_clears_failure_stage_fields(self, mock_diagnostics, _mock_tokenize, _mock_models):
+        class FakeSession:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def get_providers(self):
+                return ["DmlExecutionProvider", "CPUExecutionProvider"]
+
+            def run(self, *_args, **_kwargs):
+                return [np.array([[1.0, 0.0]], dtype=np.float32)]
+
+        mock_diagnostics.return_value = {
+            "issue": "unknown",
+            "available_providers": ["DmlExecutionProvider", "CPUExecutionProvider"],
+            "windows_build": 22631,
+        }
+
+        with patch.object(clip_embedding.ort, "InferenceSession", FakeSession, create=True):
+            payload = clip_embedding._run_isolated_gpu_probe()
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["issue"], "")
+        self.assertNotIn("probe_stage", payload["diagnostics"])
+        self.assertNotIn("failure_kind", payload["diagnostics"])
+        self.assertNotIn("probe_exception_type", payload["diagnostics"])
+        self.assertNotIn("probe_exception_message", payload["diagnostics"])
+        self.assertEqual(payload["diagnostics"]["available_providers"], ["DmlExecutionProvider", "CPUExecutionProvider"])
+
     @patch("src.core.clip_embedding._run_gpu_runtime_probe_once", return_value={"ok": False, "issue": "directx", "detail": "probe crashed"})
     def test_prepare_inference_runtime_falls_back_to_cpu_when_probe_fails(self, _mock_probe):
         status = clip_embedding.prepare_inference_runtime(prefer_gpu=True)
@@ -145,6 +225,34 @@ class ClipEmbeddingRuntimeTests(unittest.TestCase):
         self.assertFalse(status["effective_prefer_gpu"])
         self.assertEqual(status["issue"], "directx")
         self.assertIn("probe crashed", status["warning"])
+        self.assertEqual(status["diagnostics"], {})
+
+    @patch("src.core.clip_embedding._run_gpu_runtime_probe_once", return_value={"ok": False, "issue": "unknown", "detail": "GPU runtime probe exited with code 1."})
+    def test_prepare_inference_runtime_falls_back_to_cpu_when_probe_issue_is_unknown(self, _mock_probe):
+        status = clip_embedding.prepare_inference_runtime(prefer_gpu=True)
+
+        self.assertFalse(status["effective_prefer_gpu"])
+        self.assertEqual(status["issue"], "unknown")
+        self.assertIn("fell back to CPU", status["warning"])
+
+    @patch("src.core.clip_embedding.load_config", return_value={"prefer_gpu": True, "gpu_probe_unknown_keep_gpu": True})
+    @patch("src.core.clip_embedding._run_gpu_runtime_probe_once", return_value={"ok": False, "issue": "unknown", "detail": "GPU runtime probe exited with code 1."})
+    def test_prepare_inference_runtime_keeps_gpu_for_unknown_issue_when_opted_in(self, _mock_probe, _mock_load_config):
+        status = clip_embedding.prepare_inference_runtime(prefer_gpu=True)
+
+        self.assertTrue(status["effective_prefer_gpu"])
+        self.assertEqual(status["issue"], "unknown")
+        self.assertIn("inconclusive", status["warning"])
+
+    @patch("src.core.clip_embedding._run_gpu_runtime_probe_once", return_value={"ok": False, "issue": "probe_timeout", "detail": "probe timed out", "diagnostics": {"failure_kind": "probe_timeout"}})
+    def test_prepare_inference_runtime_keeps_gpu_when_probe_is_inconclusive(self, _mock_probe):
+        status = clip_embedding.prepare_inference_runtime(prefer_gpu=True)
+
+        self.assertTrue(status["effective_prefer_gpu"])
+        self.assertEqual(status["issue"], "probe_timeout")
+        self.assertIn("inconclusive", status["warning"])
+        self.assertIn("probe timed out", status["warning"])
+        self.assertEqual(status["diagnostics"]["failure_kind"], "probe_timeout")
 
     @patch("src.core.clip_embedding._run_gpu_runtime_probe_once", return_value={"ok": True, "issue": "", "detail": ""})
     def test_prepare_inference_runtime_keeps_gpu_when_probe_succeeds(self, _mock_probe):
@@ -152,6 +260,7 @@ class ClipEmbeddingRuntimeTests(unittest.TestCase):
 
         self.assertTrue(status["effective_prefer_gpu"])
         self.assertEqual(status["warning"], "")
+        self.assertEqual(status["diagnostics"], {})
 
     def test_parse_gpu_probe_payload_uses_last_json_line(self):
         payload = clip_embedding._parse_gpu_probe_payload("noise\n{\"ok\": false, \"issue\": \"unknown\", \"detail\": \"x\"}\n")
@@ -196,7 +305,7 @@ class ClipEmbeddingRuntimeTests(unittest.TestCase):
 
     @patch("src.core.clip_embedding.load_config", return_value={"prefer_gpu": True})
     def test_get_engine_runtime_status_uses_probe_cache_before_engine_init(self, _mock_load_config):
-        clip_embedding._GPU_PROBE_CACHE = {"ok": True, "issue": "", "detail": ""}
+        clip_embedding._GPU_PROBE_CACHE = {"ok": True, "issue": "", "detail": "", "diagnostics": {"active_providers": ["DmlExecutionProvider"]}}
         self.addCleanup(lambda: setattr(clip_embedding, "_GPU_PROBE_CACHE", None))
         self.addCleanup(lambda: setattr(clip_embedding, "engine", None))
         clip_embedding.engine = None
@@ -205,6 +314,22 @@ class ClipEmbeddingRuntimeTests(unittest.TestCase):
 
         self.assertTrue(status["initialized"])
         self.assertEqual(status["backend"], "GPU")
+        self.assertEqual(status["diagnostics"]["active_providers"], ["DmlExecutionProvider"])
+
+    @patch("src.core.clip_embedding.load_config", return_value={"prefer_gpu": True})
+    def test_get_engine_runtime_status_keeps_gpu_for_inconclusive_probe_cache(self, _mock_load_config):
+        clip_embedding._GPU_PROBE_CACHE = {"ok": False, "issue": "probe_timeout", "detail": "probe timed out", "diagnostics": {"failure_kind": "probe_timeout"}}
+        self.addCleanup(lambda: setattr(clip_embedding, "_GPU_PROBE_CACHE", None))
+        self.addCleanup(lambda: setattr(clip_embedding, "engine", None))
+        clip_embedding.engine = None
+
+        status = clip_embedding.get_engine_runtime_status()
+
+        self.assertTrue(status["initialized"])
+        self.assertEqual(status["backend"], "GPU")
+        self.assertEqual(status["issue"], "probe_timeout")
+        self.assertIn("inconclusive", status["warning"])
+        self.assertEqual(status["diagnostics"]["failure_kind"], "probe_timeout")
 
     @patch("src.core.clip_embedding.load_config", return_value={"prefer_gpu": False})
     def test_get_engine_runtime_status_reports_cpu_when_gpu_disabled(self, _mock_load_config):

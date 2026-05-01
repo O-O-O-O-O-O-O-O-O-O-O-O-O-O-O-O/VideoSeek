@@ -43,12 +43,16 @@ DEFAULT_CONFIG = {
     "sampling_fps_mode": "dynamic",
     "sampling_fps_rules": "0-10m=2; 10m-60m=1; 60m-=0.5",
     "search_top_k": 20,
+    "frame_neighbor_rerank_enabled": False,
+    "frame_neighbor_rerank_top_n": 10,
+    "frame_neighbor_rerank_window": 2,
     "preview_seconds": 6,
     "preview_width": 640,
     "preview_height": 360,
     "thumb_width": 130,
     "thumb_height": 75,
     "prefer_gpu": True,
+    "gpu_probe_unknown_keep_gpu": False,
     "embedding_batch_size": 16,
     "similarity_threshold": 0.85,
     "max_chunk_duration": 5.0,
@@ -69,6 +73,8 @@ DEFAULT_CONFIG = {
 CONFIG_BOUNDS = {
     "fps": (0.01, 24.0),
     "search_top_k": (1, 200),
+    "frame_neighbor_rerank_top_n": (1, 100),
+    "frame_neighbor_rerank_window": (1, 12),
     "preview_seconds": (2, 20),
     "preview_width": (160, 1920),
     "preview_height": (90, 1080),
@@ -83,6 +89,8 @@ CONFIG_BOUNDS = {
 
 CONFIG_INT_KEYS = {
     "search_top_k",
+    "frame_neighbor_rerank_top_n",
+    "frame_neighbor_rerank_window",
     "preview_seconds",
     "preview_width",
     "preview_height",
@@ -293,6 +301,10 @@ def _sanitize_general_settings(config):
         sanitized.get("prefer_gpu", DEFAULT_CONFIG["prefer_gpu"]),
         DEFAULT_CONFIG["prefer_gpu"],
     )
+    sanitized["gpu_probe_unknown_keep_gpu"] = _coerce_bool(
+        sanitized.get("gpu_probe_unknown_keep_gpu", DEFAULT_CONFIG["gpu_probe_unknown_keep_gpu"]),
+        DEFAULT_CONFIG["gpu_probe_unknown_keep_gpu"],
+    )
     sanitized["auto_cleanup_missing_files"] = _coerce_bool(
         sanitized.get("auto_cleanup_missing_files", DEFAULT_CONFIG["auto_cleanup_missing_files"]),
         DEFAULT_CONFIG["auto_cleanup_missing_files"],
@@ -347,6 +359,7 @@ def load_config():
     config_path = _resolve_config_path()
     if os.path.exists(config_path):
         raw_config = _load_json(config_path)
+        should_persist_new_defaults = any(key not in raw_config for key in DEFAULT_CONFIG)
         has_explicit_data_root = bool(str(raw_config.get("data_root", "") or "").strip())
         has_explicit_storage_paths = any(key in raw_config for key in PATH_KEYS)
         config = _apply_default_values(raw_config)
@@ -376,7 +389,7 @@ def load_config():
                 config["remote_max_frames"] = DEFAULT_CONFIG["remote_max_frames"]
         except Exception:
             config["remote_max_frames"] = DEFAULT_CONFIG["remote_max_frames"]
-        if os.path.normpath(config_path) != os.path.normpath(CONFIG_FILE):
+        if should_persist_new_defaults or os.path.normpath(config_path) != os.path.normpath(CONFIG_FILE):
             save_config(config)
         return config
 

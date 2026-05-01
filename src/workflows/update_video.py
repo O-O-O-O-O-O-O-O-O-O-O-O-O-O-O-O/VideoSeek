@@ -10,7 +10,9 @@ from src.services.indexing_service import (
     scan_target_libraries,
 )
 from src.services.library_service import mark_global_index_fresh, mark_global_index_stale
-from src.utils import canonicalize_library_path, get_video_hash, load_meta, save_meta
+from src.storage.asset_store import load_model_metadata, save_model_metadata
+from src.storage.config_store import get_local_model_asset_dirs
+from src.utils import canonicalize_library_path, get_video_hash
 
 logger = get_logger("update_video")
 
@@ -72,10 +74,9 @@ def update_videos_flow(
     logger.info("Starting index update%s", f" for {target_lib}" if target_lib else "")
     garbage_collect_indices()
     config = load_config()
-    meta = load_meta(config["meta_file"])
-    meta_file = config["meta_file"]
+    meta = load_model_metadata(config=config)
     _set_library_index_state(meta, "partial", target_lib=target_lib)
-    save_meta(meta, meta_file)
+    save_model_metadata(meta, config=config)
 
     should_cleanup_missing_files = force_cleanup_missing_files or config.get("auto_cleanup_missing_files", False)
     search_assets_changed = False
@@ -94,7 +95,7 @@ def update_videos_flow(
             delete_physical_video_data(video_id, config)
         if removed_any:
             search_assets_changed = True
-            save_meta(meta, meta_file)
+            save_model_metadata(meta, config=config)
     else:
         if progress_callback:
             progress_callback(5, "Keeping vectors for offline or missing files")
@@ -107,7 +108,7 @@ def update_videos_flow(
             get_video_id,
             target_lib=target_lib,
             progress_callback=progress_callback,
-            persist_meta_callback=lambda: save_meta(meta, meta_file),
+            persist_meta_callback=lambda: save_model_metadata(meta, config=config),
             should_stop_callback=should_stop_callback,
             issue_callback=issue_callback,
             include_existing_assets=include_existing_assets,
@@ -115,7 +116,7 @@ def update_videos_flow(
     except IndexUpdateInterrupted as exc:
         if getattr(exc, "search_assets_changed", False):
             mark_global_index_stale(meta=meta)
-            save_meta(meta, meta_file)
+            save_model_metadata(meta, config=config)
         raise
     if len(scan_result) == 8:
         (
@@ -155,7 +156,7 @@ def update_videos_flow(
     if should_stop_callback and should_stop_callback():
         if search_assets_changed:
             mark_global_index_stale(meta=meta)
-            save_meta(meta, meta_file)
+            save_model_metadata(meta, config=config)
         raise InterruptedError("Index update stopped before rebuilding global index")
 
     if failed_videos:
@@ -166,16 +167,16 @@ def update_videos_flow(
         )
 
     if _mark_missing_source_entries(meta, target_lib=target_lib):
-        save_meta(meta, meta_file)
+        save_model_metadata(meta, config=config)
 
-    save_meta(meta, meta_file)
+    save_model_metadata(meta, config=config)
     if not any(len(lib.get("files", {})) > 0 for lib in meta["libraries"].values()):
         _finalize_library_index_state(meta, target_lib=target_lib)
         if rebuild_global_assets:
             mark_global_index_fresh(meta=meta)
         elif search_assets_changed:
             mark_global_index_stale(meta=meta)
-        save_meta(meta, meta_file)
+        save_model_metadata(meta, config=config)
         if rebuild_global_assets:
             clear_global_index(config)
             logger.info("No libraries remain after cleanup; cleared global indexes")
@@ -187,7 +188,7 @@ def update_videos_flow(
             mark_global_index_fresh(meta=meta)
         elif search_assets_changed:
             mark_global_index_stale(meta=meta)
-        save_meta(meta, meta_file)
+        save_model_metadata(meta, config=config)
         logger.warning("No valid videos found during indexing")
         if rebuild_global_assets:
             clear_global_index(config)
@@ -197,7 +198,7 @@ def update_videos_flow(
         _finalize_library_index_state(meta, target_lib=target_lib)
         if search_assets_changed:
             mark_global_index_stale(meta=meta)
-        save_meta(meta, meta_file)
+        save_model_metadata(meta, config=config)
         logger.info(
             "Skipped global index rebuild (rebuild_global_assets=False). local_vectors=%s local_chunks=%s",
             len(all_paths),
@@ -217,15 +218,16 @@ def update_videos_flow(
     )
     _finalize_library_index_state(meta, target_lib=target_lib)
     mark_global_index_fresh(meta=meta)
-    save_meta(meta, meta_file)
+    save_model_metadata(meta, config=config)
     return result
 
 def delete_physical_video_data(video_id, config):
     if not video_id:
         return
 
-    vector_file = os.path.join(config["vector_dir"], f"{video_id}_vectors.npy")
-    index_file = os.path.join(config["index_dir"], f"{video_id}_index.faiss")
+    model_dirs = get_local_model_asset_dirs(config=config)
+    vector_file = os.path.join(model_dirs["vector_dir"], f"{video_id}_vectors.npy")
+    index_file = os.path.join(model_dirs["index_dir"], f"{video_id}_index.faiss")
 
     try:
         if os.path.exists(vector_file):
@@ -240,7 +242,7 @@ def delete_physical_video_data(video_id, config):
 
 def garbage_collect_indices():
     config = load_config()
-    meta = load_meta(config["meta_file"])
+    meta = load_model_metadata(config=config)
 
     valid_ids = set()
     for library in meta["libraries"].values():
@@ -248,7 +250,8 @@ def garbage_collect_indices():
             if info.get("vid"):
                 valid_ids.add(info["vid"])
 
-    for folder in [config["vector_dir"], config["index_dir"]]:
+    model_dirs = get_local_model_asset_dirs(config=config)
+    for folder in [model_dirs["vector_dir"], model_dirs["index_dir"]]:
         if not os.path.exists(folder):
             continue
         for filename in os.listdir(folder):

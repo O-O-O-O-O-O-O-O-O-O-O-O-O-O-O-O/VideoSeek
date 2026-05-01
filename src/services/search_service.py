@@ -7,11 +7,14 @@ import numpy as np
 from src.core.clip_embedding import get_clip_embeddings_batch, get_engine, get_text_embedding
 from src.app.config import load_config
 from src.app.logging_utils import get_logger
-from src.core.faiss_index import load_clip_index, search_vector
+from src.core.faiss_index import load_clip_index
+from src.storage.config_store import get_active_model_profile, get_global_model_asset_paths
 
 logger = get_logger("search_service")
 _FRAME_ASSET_CACHE = {"key": None, "value": (None, None, None)}
 _CHUNK_ASSET_CACHE = {"key": None, "value": (None, None, None)}
+_FRAME_ASSET_INFO = {"key": None, "embedding_spec": None, "index_dim": 0}
+_CHUNK_ASSET_INFO = {"key": None, "embedding_spec": None, "index_dim": 0}
 
 
 def _asset_cache_key(index_file, vector_file):
@@ -45,9 +48,50 @@ def _load_asset_metadata(vector_file, required_fields, asset_label):
     return data
 
 
+def _reset_asset_info(info_cache):
+    info_cache["key"] = None
+    info_cache["embedding_spec"] = None
+    info_cache["index_dim"] = 0
+
+
+def _check_asset_profile_compatibility(config, asset_info, asset_label):
+    spec = asset_info.get("embedding_spec")
+    if not isinstance(spec, dict):
+        return
+    profile = get_active_model_profile(config=config)
+    active_profile_id = str(profile.get("id", "") or "").strip()
+    active_provider = str(profile.get("provider", "") or "").strip()
+    spec_model_id = str(spec.get("model_id", "") or "").strip()
+    spec_provider = str(spec.get("provider", "") or "").strip()
+    spec_dimension = spec.get("dimension")
+    index_dim = int(asset_info.get("index_dim", 0) or 0)
+
+    if spec_model_id and active_profile_id and spec_model_id != active_profile_id:
+        raise RuntimeError(
+            f"Search {asset_label} index targets model profile '{spec_model_id}', "
+            f"but active profile is '{active_profile_id}'. "
+            "Please rebuild the index for the active model profile."
+        )
+    if spec_provider and active_provider and spec_provider != active_provider:
+        raise RuntimeError(
+            f"Search {asset_label} index provider mismatch (index={spec_provider}, active={active_provider}). "
+            "Please rebuild the index for the active model profile."
+        )
+    try:
+        spec_dimension = int(spec_dimension)
+    except (TypeError, ValueError):
+        spec_dimension = 0
+    if spec_dimension > 0 and index_dim > 0 and spec_dimension != index_dim:
+        raise RuntimeError(
+            f"Search {asset_label} index dimension mismatch in metadata (spec={spec_dimension}, index={index_dim}). "
+            "Please rebuild the index for the active model profile."
+        )
+
+
 def load_search_assets(config):
-    index_file = config["cross_index_file"]
-    vector_file = config["cross_vector_file"]
+    global_paths = get_global_model_asset_paths(config=config)
+    index_file = global_paths["cross_index_file"]
+    vector_file = global_paths["cross_vector_file"]
 
     if not os.path.exists(index_file) or not os.path.exists(vector_file):
         logger.warning("Global frame search index is missing. Please update the index first.")
@@ -61,23 +105,29 @@ def load_search_assets(config):
     if search_index is None:
         _FRAME_ASSET_CACHE["key"] = None
         _FRAME_ASSET_CACHE["value"] = (None, None, None)
+        _reset_asset_info(_FRAME_ASSET_INFO)
         return None, None, None
 
     data = _load_asset_metadata(vector_file, required_fields=("timestamps", "paths"), asset_label="frame search")
     if data is None:
         _FRAME_ASSET_CACHE["key"] = None
         _FRAME_ASSET_CACHE["value"] = (None, None, None)
+        _reset_asset_info(_FRAME_ASSET_INFO)
         return None, None, None
 
     value = (search_index, data.get("timestamps"), data.get("paths"))
     _FRAME_ASSET_CACHE["key"] = cache_key
     _FRAME_ASSET_CACHE["value"] = value
+    _FRAME_ASSET_INFO["key"] = cache_key
+    _FRAME_ASSET_INFO["embedding_spec"] = data.get("embedding_spec") if isinstance(data.get("embedding_spec"), dict) else None
+    _FRAME_ASSET_INFO["index_dim"] = int(getattr(search_index, "d", 0) or 0)
     return value
 
 
 def load_chunk_search_assets(config):
-    index_file = config["cross_chunk_index_file"]
-    vector_file = config["cross_chunk_vector_file"]
+    global_paths = get_global_model_asset_paths(config=config)
+    index_file = global_paths["cross_chunk_index_file"]
+    vector_file = global_paths["cross_chunk_vector_file"]
 
     if not os.path.exists(index_file) or not os.path.exists(vector_file):
         logger.warning("Global chunk search index is missing. Please update the index first.")
@@ -91,17 +141,22 @@ def load_chunk_search_assets(config):
     if search_index is None:
         _CHUNK_ASSET_CACHE["key"] = None
         _CHUNK_ASSET_CACHE["value"] = (None, None, None)
+        _reset_asset_info(_CHUNK_ASSET_INFO)
         return None, None, None
 
     data = _load_asset_metadata(vector_file, required_fields=("ranges", "paths"), asset_label="chunk search")
     if data is None:
         _CHUNK_ASSET_CACHE["key"] = None
         _CHUNK_ASSET_CACHE["value"] = (None, None, None)
+        _reset_asset_info(_CHUNK_ASSET_INFO)
         return None, None, None
 
     value = (search_index, data.get("ranges"), data.get("paths"))
     _CHUNK_ASSET_CACHE["key"] = cache_key
     _CHUNK_ASSET_CACHE["value"] = value
+    _CHUNK_ASSET_INFO["key"] = cache_key
+    _CHUNK_ASSET_INFO["embedding_spec"] = data.get("embedding_spec") if isinstance(data.get("embedding_spec"), dict) else None
+    _CHUNK_ASSET_INFO["index_dim"] = int(getattr(search_index, "d", 0) or 0)
     return value
 
 
@@ -119,6 +174,79 @@ def build_query_vector(query_data, is_text=False):
     return query_vector
 
 
+def _search_frame_results_with_ids(query_vector, index, timestamps, video_paths, top_k):
+    actual_k = min(top_k, index.ntotal)
+    if actual_k <= 0:
+        return [], []
+    if getattr(query_vector, "ndim", 0) != 2 or query_vector.shape[0] <= 0:
+        raise RuntimeError("Invalid query vector. Please retry the search.")
+    query_dim = int(query_vector.shape[1])
+    index_dim = int(getattr(index, "d", 0))
+    if index_dim > 0 and query_dim != index_dim:
+        raise RuntimeError(
+            f"Search index dimension mismatch (query={query_dim}, index={index_dim}). "
+            "Current model uses a different embedding space. Please rebuild the index for the active model."
+        )
+
+    distances, indices = index.search(query_vector, actual_k)
+    matched_results = []
+    matched_ids = []
+    for rank, index_value in enumerate(indices[0]):
+        if index_value == -1 or index_value >= len(video_paths):
+            continue
+        timestamp = float(timestamps[index_value])
+        video_path = video_paths[index_value]
+        matched_results.append((timestamp, timestamp, float(distances[0][rank]), video_path))
+        matched_ids.append(int(index_value))
+    return matched_results, matched_ids
+
+
+def _apply_frame_neighbor_rerank(results, frame_ids, query_vector, search_index, timestamps, video_paths, config):
+    if not results or not frame_ids:
+        return results
+    if not bool(config.get("frame_neighbor_rerank_enabled", False)):
+        return results
+
+    max_top_n = int(config.get("frame_neighbor_rerank_top_n", 10) or 10)
+    neighbor_window = int(config.get("frame_neighbor_rerank_window", 2) or 2)
+    if max_top_n <= 0 or neighbor_window <= 0:
+        return results
+
+    try:
+        query = query_vector[0]
+    except Exception:
+        return results
+
+    reranked = list(results)
+    max_index = min(len(results), len(frame_ids), max_top_n)
+    for rank in range(max_index):
+        base_id = frame_ids[rank]
+        if base_id < 0 or base_id >= len(video_paths):
+            continue
+
+        base_path = video_paths[base_id]
+        best_score = float(reranked[rank][2])
+        best_timestamp = float(reranked[rank][0])
+
+        start = max(0, base_id - neighbor_window)
+        end = min(len(video_paths) - 1, base_id + neighbor_window)
+        for candidate_id in range(start, end + 1):
+            if video_paths[candidate_id] != base_path:
+                continue
+            try:
+                candidate_vector = search_index.reconstruct(int(candidate_id))
+            except Exception as exc:
+                logger.debug("Neighbor rerank skipped due to reconstruct failure: %s", exc)
+                return results
+            score = float(np.dot(query, candidate_vector))
+            if score > best_score:
+                best_score = score
+                best_timestamp = float(timestamps[candidate_id])
+
+        reranked[rank] = (best_timestamp, best_timestamp, best_score, base_path)
+    return reranked
+
+
 def run_search(query_data, is_text=False, top_k=None):
     # Retained intentionally: exported via src.core.core and reached by
     # worker-side runtime imports that static analysis can miss.
@@ -132,9 +260,26 @@ def run_search(query_data, is_text=False, top_k=None):
     search_index, timestamps, video_paths = load_search_assets(config)
     if search_index is None:
         return []
+    _check_asset_profile_compatibility(config, _FRAME_ASSET_INFO, asset_label="frame")
 
     query_vector = build_query_vector(query_data, is_text=is_text)
-    return search_vector(query_vector, search_index, timestamps, video_paths, top_k=top_k)
+    matched_results, matched_ids = _search_frame_results_with_ids(
+        query_vector,
+        search_index,
+        timestamps,
+        video_paths,
+        top_k=top_k,
+    )
+    matched_results = _apply_frame_neighbor_rerank(
+        matched_results,
+        matched_ids,
+        query_vector,
+        search_index,
+        timestamps,
+        video_paths,
+        config,
+    )
+    return matched_results
 
 
 def run_chunk_search(query_data, is_text=False, top_k=None):
@@ -144,11 +289,21 @@ def run_chunk_search(query_data, is_text=False, top_k=None):
     search_index, ranges, video_paths = load_chunk_search_assets(config)
     if search_index is None:
         return []
+    _check_asset_profile_compatibility(config, _CHUNK_ASSET_INFO, asset_label="chunk")
 
     query_vector = build_query_vector(query_data, is_text=is_text)
     actual_k = min(top_k, search_index.ntotal)
     if actual_k <= 0:
         return []
+    if getattr(query_vector, "ndim", 0) != 2 or query_vector.shape[0] <= 0:
+        raise RuntimeError("Invalid query vector. Please retry the search.")
+    query_dim = int(query_vector.shape[1])
+    index_dim = int(getattr(search_index, "d", 0))
+    if index_dim > 0 and query_dim != index_dim:
+        raise RuntimeError(
+            f"Search index dimension mismatch (query={query_dim}, index={index_dim}). "
+            "Current model uses a different embedding space. Please rebuild the index for the active model."
+        )
 
     distances, indices = search_index.search(query_vector, actual_k)
     matched_results = []

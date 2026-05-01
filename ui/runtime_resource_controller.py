@@ -21,6 +21,8 @@ class RuntimeResourceController(QObject):
         self.parent_window = parent_window
         self.dialog = None
         self.worker = None
+        self._dialog_theme = None
+        self._dialog_language = None
 
     def check_resources(self, show_dialog=True):
         status = get_runtime_resource_status()
@@ -30,6 +32,9 @@ class RuntimeResourceController(QObject):
         if show_dialog:
             self.show_missing_dialog(status)
         return False
+
+    def get_status_snapshot(self):
+        return get_runtime_resource_status()
 
     def show_missing_dialog(self, status=None):
         status = status or get_runtime_resource_status()
@@ -43,6 +48,23 @@ class RuntimeResourceController(QObject):
             ),
             download_enabled=status["download_enabled"],
         )
+        dialog.exec()
+
+    def show_manage_dialog(self):
+        status = get_runtime_resource_status()
+        ensure_runtime_resource_dirs(status)
+        dialog = self._ensure_dialog()
+        if status.get("resources_ready"):
+            dialog.set_manage_state()
+        else:
+            dialog.set_missing_state(
+                status["display_files"],
+                get_runtime_resource_location_text(
+                    status=status,
+                    include_ffmpeg=not status["ffmpeg_ready"] or not status["model_ready"],
+                ),
+                download_enabled=status["download_enabled"],
+            )
         dialog.exec()
 
     def start_download(self):
@@ -75,15 +97,25 @@ class RuntimeResourceController(QObject):
         shutdown_thread(self.worker)
 
     def _ensure_dialog(self):
+        current_theme = bool(self.parent_window.is_dark_mode)
+        current_language = str(self.parent_window.language)
+        if (
+            self.dialog is not None
+            and (self._dialog_theme != current_theme or self._dialog_language != current_language)
+        ):
+            self.dialog.close()
+            self.dialog.deleteLater()
+            self.dialog = None
         if self.dialog is None:
             self.dialog = ModelDownloadDialog(
                 self.parent_window,
-                self.parent_window.is_dark_mode,
-                self.parent_window.language,
+                current_theme,
+                current_language,
             )
-            self.dialog.download_requested.connect(self.parent_window.start_runtime_resource_download)
-            self.dialog.open_folder_requested.connect(self.parent_window.open_runtime_resource_folder)
-            self.dialog.exit_requested.connect(self.startup_cancelled.emit)
+            self.dialog.import_requested.connect(self.parent_window.parse_model_packages)
+            self.dialog.go_download_requested.connect(self.parent_window.open_model_package_download_page)
+            self._dialog_theme = current_theme
+            self._dialog_language = current_language
         return self.dialog
 
     def _update_progress(self, value, text):

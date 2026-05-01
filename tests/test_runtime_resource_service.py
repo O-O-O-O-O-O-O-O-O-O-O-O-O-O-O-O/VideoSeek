@@ -1,3 +1,4 @@
+import os
 import sys
 import types
 import unittest
@@ -12,23 +13,23 @@ from src.services import runtime_resource_service
 class RuntimeResourceServiceTests(unittest.TestCase):
     @patch("src.services.runtime_resource_service.get_app_meta")
     @patch("src.services.runtime_resource_service.has_ffmpeg")
-    @patch("src.services.runtime_resource_service.get_default_ffmpeg_path")
-    @patch("src.services.runtime_resource_service.get_configured_model_dir")
+    @patch("src.services.runtime_resource_service.get_configured_ffmpeg_target_path")
+    @patch("src.services.runtime_resource_service.get_active_model_resource_dir")
     @patch("src.services.runtime_resource_service.get_app_data_dir")
     @patch("src.services.runtime_resource_service.get_missing_model_files")
     def test_get_runtime_resource_status_includes_ffmpeg_when_missing(
         self,
         mock_missing_files,
         mock_app_data_dir,
-        mock_model_dir,
-        mock_ffmpeg_path,
+        mock_active_model_resource_dir,
+        mock_ffmpeg_target_path,
         mock_has_ffmpeg,
         mock_get_app_meta,
     ):
         mock_missing_files.return_value = (["clip_visual.onnx"], {})
         mock_app_data_dir.return_value = "D:/VideoSeek"
-        mock_model_dir.return_value = "D:/VideoSeek/models"
-        mock_ffmpeg_path.return_value = "D:/VideoSeek/bin/ffmpeg.exe"
+        mock_active_model_resource_dir.return_value = "D:/VideoSeek/models"
+        mock_ffmpeg_target_path.return_value = "D:/VideoSeek/bin/ffmpeg.exe"
         mock_has_ffmpeg.return_value = False
         mock_get_app_meta.return_value = {"model_manifest_url": "https://example.com/manifest.json"}
 
@@ -58,12 +59,22 @@ class RuntimeResourceServiceTests(unittest.TestCase):
             "ffmpeg_ready": False,
         }
 
-        root_dir = runtime_resource_service.ensure_runtime_resource_dirs(status=status)
+        open_paths = runtime_resource_service.ensure_runtime_resource_dirs(status=status)
 
-        self.assertEqual(root_dir, "D:/VideoSeek")
         self.assertEqual(
-            [call.args[0] for call in mock_makedirs.call_args_list],
-            ["D:/VideoSeek", "D:/VideoSeek/models", "D:/VideoSeek/bin"],
+            open_paths,
+            [
+                os.path.normpath("D:/VideoSeek/models"),
+                os.path.normpath("D:/VideoSeek/bin"),
+            ],
+        )
+        self.assertEqual(
+            [os.path.normpath(call.args[0]) for call in mock_makedirs.call_args_list],
+            [
+                os.path.normpath("D:/VideoSeek"),
+                os.path.normpath("D:/VideoSeek/models"),
+                os.path.normpath("D:/VideoSeek/bin"),
+            ],
         )
 
 

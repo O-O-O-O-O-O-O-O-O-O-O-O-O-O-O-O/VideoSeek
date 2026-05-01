@@ -82,7 +82,7 @@ def search_vector(query_vector, index, timestamps, video_paths, top_k=10):
     return matched_results
 
 
-def save_vectors(vectors_list, timestamps, output_file, chunks=None, chunk_config=None):
+def save_vectors(vectors_list, timestamps, output_file, chunks=None, chunk_config=None, embedding_spec=None):
     folder_path = os.path.dirname(output_file)
     if folder_path and not os.path.exists(folder_path):
         os.makedirs(folder_path)
@@ -96,6 +96,8 @@ def save_vectors(vectors_list, timestamps, output_file, chunks=None, chunk_confi
         data["chunks"] = chunk_payload
     if isinstance(chunk_config, dict):
         data["chunk_config"] = chunk_config
+    if isinstance(embedding_spec, dict):
+        data["embedding_spec"] = dict(embedding_spec)
     _atomic_save_npy(output_file, data)
     logger.info("Vectors saved to %s", output_file)
     return data
