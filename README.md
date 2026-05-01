@@ -2,7 +2,7 @@
 
 [中文说明](./README.zh-CN.md) | **English**
 
-Desktop semantic video search built with `PySide6`, `ONNX Runtime`, `FAISS`, and `FFmpeg`.
+Desktop semantic video search built with PySide6, ONNX Runtime, FAISS, and FFmpeg.
 
 ## Quick Start
 
