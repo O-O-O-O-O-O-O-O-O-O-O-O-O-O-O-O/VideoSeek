@@ -30,32 +30,85 @@ On first launch, the app can auto-prepare runtime resources from the remote mani
 
 ## 3) Manual Runtime Setup (Fallback)
 
-If auto-prepare is unavailable, prepare these items manually.
+If auto-prepare is unavailable, use one of the paths below.
 
-### 3.1 Model Files (Profile-Based)
+### 3.1 Bundled model zip from 123 pan (recommended for contributors)
+
+The folder linked in the README as **[123 cloud drive (models)](https://1858268090.share.123pan.cn/123pan/VFA7vd-vhJXA)** is maintained by the project: it holds **ready-made archives**, not a loose pile of weight files you must wire up by hand. Downloads typically include a **PDF tutorial** (often Chinese) that walks through the **intended user flow**:
+
+1. Start the app (`python main.py`).
+2. When the runtime-resources dialog appears (or open **Import runtime resources** from the banner / menu), use the **drop zone** or **Add files** to add the model `.zip`.
+3. Optionally add a sibling **`*.sha256`** next to the zip if the bundle ships one (checksum verification).
+4. Click **Import and Parse** (`导入并解析`). The app extracts the zip under your model directory and merges **`model_manifest.json`** entries into Settings (field reference: **§ 3.3**). You should **not** need to unpack manually into `%LOCALAPPDATA%\VideoSeek\models\` first.
+5. If several model profiles are registered, pick the **active model profile** under Settings.
+
+For FFmpeg, you can add **`ffmpeg.exe`** in the **same file list** and run **Import and Parse** so it is copied to the app-managed FFmpeg location.
+
+This matches how end users are expected to install models; contributors validating releases should follow the same path before diving into manual layouts.
+
+### 3.2 Model files — manual layout (advanced)
+
+Use this only when you are **not** using the official zip flow—for example custom builds or debugging.
 
 Place files under one of:
 - `%LOCALAPPDATA%\VideoSeek\models\`
 - `models/` under project root
 
-If the in-app / manifest download is not available, you can download a model bundle manually from: [123 cloud drive (models)](https://1858268090.share.123pan.cn/123pan/VFA7vd-vhJXA) — unpack or copy files so they match the active profile layout under one of the paths above.
+You must mirror the **active model profile** layout (manifest + weights next to each other). Default `clip_onnx` example filenames:
 
-Required files are resolved from the active model profile.
-
-Default `clip_onnx` example:
 - `clip_visual.onnx`
 - `clip_text.onnx`
 - `bpe_simple_vocab_16e6.txt.gz`
 
-If you switch to another provider/profile (for example `siglip2_onnx`), file requirements change with that profile. Runtime checks and downloads follow the active profile configuration.
+If you switch to another provider/profile (for example `siglip2_onnx`), file requirements change with that profile. Runtime checks follow the active profile configuration.
 
-### 3.2 FFmpeg
+Implementation reference for zip/import behavior: `src/services/model_package_service.py`.
+
+### 3.3 `model_manifest.json` (pack layout / custom bundles)
+
+Official zips from the 123 pan folder already include this file—**you only need this section when authoring or inspecting a custom package.**
+
+- **Filename:** **`model_manifest.json`** (not `manifest.json`).
+- **Placement:** In the zip (or on disk after import), the manifest must sit **in the same folder** as the model weight files. After import, that folder is under  
+  `<model_dir>/<provider_folder>/<variant>/`  
+  where **`provider_folder`** is derived from `provider`, e.g. `openai-clip` for `clip_onnx`, `siglip2` for `siglip2_onnx` (see `_provider_dir` in `src/services/model_package_service.py`).
+
+**Required fields**
+
+| Field | Meaning |
+|-------|--------|
+| `provider` | Inference backend id, e.g. `clip_onnx`, `siglip2_onnx`. |
+| `variant` **or** `model_variant` | Subfolder name for that provider, e.g. `vit-base-patch32`. |
+
+**Optional fields**
+
+| Field | Meaning |
+|-------|--------|
+| `id` | Profile id in Settings; if omitted, derived from `provider` + `variant`. |
+| `display_name` | Shown in the model profile UI. |
+| `prefer_gpu` | Boolean; default `true`. |
+| `required_files` | List of filenames that must exist beside the manifest. If omitted, defaults are used per `provider` (CLIP vs SigLIP2 file lists in code). |
+| `files` | Map of logical keys → filenames for config; if omitted, built-in defaults apply for known providers. |
+
+**Minimal example (`clip_onnx`):**
+
+```json
+{
+  "provider": "clip_onnx",
+  "variant": "vit-base-patch32",
+  "display_name": "CLIP ONNX (example)"
+}
+```
+
+Authoritative validation and defaults: `import_model_packages` / `_install_extracted_packages` in `src/services/model_package_service.py`.
+
+### 3.4 FFmpeg
 
 Either:
 - Put `ffmpeg.exe` into `%LOCALAPPDATA%\VideoSeek\bin\`
 - Or keep `ffmpeg` accessible from `PATH`
 
-### 3.3 VLC Runtime for In-App Preview
+### 3.5 VLC Runtime for In-App Preview
 
 Install `python-vlc` and ensure runtime binaries are available.
 

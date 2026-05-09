@@ -32,7 +32,7 @@ python main.py
 
 ## 运行资源要求
 
-- 模型文件以当前激活的模型配置为准（默认配置为 `clip_onnx`）。程序会按 `src/app/app_meta.py` 中的远程清单尝试自动下载；若需自行获取，也可从网盘获取模型包：[123 云盘（模型）](https://1858268090.share.123pan.cn/123pan/VFA7vd-vhJXA)。
+- 模型文件以当前激活的模型配置为准（默认配置为 `clip_onnx`）。程序会按 `src/app/app_meta.py` 中的远程清单尝试自动下载。**给贡献者：** [123 云盘（模型）](https://1858268090.share.123pan.cn/123pan/VFA7vd-vhJXA) 里是维护者打好的 **zip 包**（通常附 **PDF** 图文步骤）。运行 `python main.py` 后，在「导入运行资源」对话框里 **拖入 zip** 或添加文件后点 **导入并解析**，无需先手搓目录结构；详见 **`docs/quickstart.md` 第 3.1 节**。
 - `clip_onnx` 默认示例文件：
   - `clip_visual.onnx`
   - `clip_text.onnx`

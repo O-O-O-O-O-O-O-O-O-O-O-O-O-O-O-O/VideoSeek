@@ -32,7 +32,7 @@ python main.py
 
 ## Runtime Requirements
 
-- Model files required by the active model profile (default is `clip_onnx`). The app can download them using the remote manifest in `src/app/app_meta.py`. If you need to fetch or place files yourself, a manual package is also available: [123 cloud drive (models)](https://1858268090.share.123pan.cn/123pan/VFA7vd-vhJXA).
+- Model files required by the active model profile (default is `clip_onnx`). The app can download them using the remote manifest in `src/app/app_meta.py`. **Contributor-friendly path:** the same [123 cloud drive (models)](https://1858268090.share.123pan.cn/123pan/VFA7vd-vhJXA) hosts **maintainer-built zip packages** (often with a PDF tutorial). After `python main.py`, import the zip **inside the app** (drag into the runtime-resources dialog → **Import and Parse**); see **`docs/quickstart.md` § 3.1**.
 - Default `clip_onnx` example files:
   - `clip_visual.onnx`
   - `clip_text.onnx`

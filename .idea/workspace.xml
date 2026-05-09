@@ -373,7 +373,6 @@
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/visualization/libgoom_plugin.dll" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/visualization/libprojectm_plugin.dll" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/visualization/libvisual_plugin.dll" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/README.zh-CN.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.zh-CN.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/docs/quickstart.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/quickstart.md" afterDir="false" />
@@ -698,15 +697,7 @@
       <workItem from="1778316957266" duration="700000" />
       <workItem from="1778317683071" duration="195000" />
       <workItem from="1778318533084" duration="5701000" />
-      <workItem from="1778344849324" duration="1385000" />
-    </task>
-    <task id="LOCAL-00019" summary="readme修改">
-      <option name="closed" value="true" />
-      <created>1774160786281</created>
-      <option name="number" value="00019" />
-      <option name="presentableId" value="LOCAL-00019" />
-      <option name="project" value="LOCAL" />
-      <updated>1774160786281</updated>
+      <workItem from="1778344849324" duration="1956000" />
     </task>
     <task id="LOCAL-00020" summary="更新功能实现">
       <option name="closed" value="true" />
@@ -1092,7 +1083,15 @@
       <option name="project" value="LOCAL" />
       <updated>1778345843524</updated>
     </task>
-    <option name="localTasksCounter" value="68" />
+    <task id="LOCAL-00068" summary="补充说明">
+      <option name="closed" value="true" />
+      <created>1778346263053</created>
+      <option name="number" value="00068" />
+      <option name="presentableId" value="LOCAL-00068" />
+      <option name="project" value="LOCAL" />
+      <updated>1778346263053</updated>
+    </task>
+    <option name="localTasksCounter" value="69" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
