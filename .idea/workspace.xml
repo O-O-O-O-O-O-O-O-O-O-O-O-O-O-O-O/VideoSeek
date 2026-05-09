@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="9b1fded6-c71f-46c4-9f35-b98f0ce740c1" name="更改" comment="适配多模型架构重构">
+    <list default="true" id="9b1fded6-c71f-46c4-9f35-b98f0ce740c1" name="更改" comment="代码解耦">
       <change afterPath="$PROJECT_DIR$/docs/static_call_analysis.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/libvlc.dll" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/libvlccore.dll" afterDir="false" />
@@ -375,18 +375,7 @@
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/visualization/libvisual_plugin.dll" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/app/app_meta.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/app_meta.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/clip_embedding.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/clip_embedding.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/core.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/core.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/indexing_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/indexing_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/remote_library_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/remote_library_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/remote_search_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/remote_search_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/search_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/search_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/storage/config_store.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/storage/config_store.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/static/favicon.ico" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_semantic_chunking.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_semantic_chunking.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_services.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_services.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/table_views.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/table_views.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/workers.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/workers.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -394,7 +383,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="7895" />
+    <option name="cachedIndexableFilesCount" value="7901" />
   </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
@@ -702,22 +691,9 @@
       <workItem from="1777867933470" duration="3561000" />
       <workItem from="1777883789238" duration="7073000" />
       <workItem from="1777956103002" duration="3033000" />
-    </task>
-    <task id="LOCAL-00013" summary="界面优化">
-      <option name="closed" value="true" />
-      <created>1774150834035</created>
-      <option name="number" value="00013" />
-      <option name="presentableId" value="LOCAL-00013" />
-      <option name="project" value="LOCAL" />
-      <updated>1774150834035</updated>
-    </task>
-    <task id="LOCAL-00014" summary="界面优化">
-      <option name="closed" value="true" />
-      <created>1774150922646</created>
-      <option name="number" value="00014" />
-      <option name="presentableId" value="LOCAL-00014" />
-      <option name="project" value="LOCAL" />
-      <updated>1774150922646</updated>
+      <workItem from="1778316355472" duration="331000" />
+      <workItem from="1778316957266" duration="700000" />
+      <workItem from="1778317683071" duration="195000" />
     </task>
     <task id="LOCAL-00015" summary="打包优化">
       <option name="closed" value="true" />
@@ -1095,7 +1071,23 @@
       <option name="project" value="LOCAL" />
       <updated>1777633342593</updated>
     </task>
-    <option name="localTasksCounter" value="62" />
+    <task id="LOCAL-00062" summary="代码解耦">
+      <option name="closed" value="true" />
+      <created>1778316584347</created>
+      <option name="number" value="00062" />
+      <option name="presentableId" value="LOCAL-00062" />
+      <option name="project" value="LOCAL" />
+      <updated>1778316584348</updated>
+    </task>
+    <task id="LOCAL-00063" summary="代码解耦">
+      <option name="closed" value="true" />
+      <created>1778316683802</created>
+      <option name="number" value="00063" />
+      <option name="presentableId" value="LOCAL-00063" />
+      <option name="project" value="LOCAL" />
+      <updated>1778316683802</updated>
+    </task>
+    <option name="localTasksCounter" value="64" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -1125,7 +1117,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="打包路径修复" />
     <MESSAGE value="拆分同步、搜索功能" />
     <MESSAGE value="打包优化" />
     <MESSAGE value="删除无用函数" />
@@ -1150,7 +1141,8 @@
     <MESSAGE value="小bug" />
     <MESSAGE value="GPU降级处理、数据迁移、BUG修复" />
     <MESSAGE value="适配多模型架构重构" />
-    <option name="LAST_COMMIT_MESSAGE" value="适配多模型架构重构" />
+    <MESSAGE value="代码解耦" />
+    <option name="LAST_COMMIT_MESSAGE" value="代码解耦" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
