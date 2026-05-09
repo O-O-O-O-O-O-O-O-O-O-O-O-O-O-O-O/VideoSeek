@@ -26,13 +26,11 @@ pip install onnxruntime-directml opencv-python PySide6 faiss-cpu numpy pillow to
 python main.py
 ```
 
-3. 首次启动运行资源：
-- 程序可按 `src/app/app_meta.py` 中的远程清单自动准备运行资源。
-- 若自动准备不可用，手动步骤见 `docs/quickstart.md`。
+3. 首次启动：**模型与 FFmpeg 不会随仓库自带。** 推荐：从 [123 云盘（模型）](https://1858268090.share.123pan.cn/123pan/VFA7vd-vhJXA) 下载官方 **zip**，运行 `python main.py`，打开 **导入运行资源**，添加 `.zip` 后点 **导入并解析**（详见 **`docs/quickstart.md` 第 3.1 节**）。高级手动摆放见 § 3.2。
 
 ## 运行资源要求
 
-- 模型文件以当前激活的模型配置为准（默认配置为 `clip_onnx`）。程序会按 `src/app/app_meta.py` 中的远程清单尝试自动下载。**给贡献者：** [123 云盘（模型）](https://1858268090.share.123pan.cn/123pan/VFA7vd-vhJXA) 里是维护者打好的 **zip 包**（通常附 **PDF** 图文步骤）。运行 `python main.py` 后，在「导入运行资源」对话框里 **拖入 zip** 或添加文件后点 **导入并解析**，无需先手搓目录结构；详见 **`docs/quickstart.md` 第 3.1 节**。
+- 模型文件随当前激活的模型配置变化（默认 `clip_onnx`）。**主路径：** 使用 [123 云盘（模型）](https://1858268090.share.123pan.cn/123pan/VFA7vd-vhJXA) 提供的 zip，在应用内 **导入并解析**（与 quickstart § 3.1 一致）。`src/app/app_meta.py` 中的链接主要用于 **公告 / 版本 / 关于** 等 JSON，以及对话框里 **前往下载** 打开网盘；**不要理解为**启动即可全自动拉取 ONNX（除非你自行配置可解析的 JSON 清单 URL）。
 - `clip_onnx` 默认示例文件：
   - `clip_visual.onnx`
   - `clip_text.onnx`

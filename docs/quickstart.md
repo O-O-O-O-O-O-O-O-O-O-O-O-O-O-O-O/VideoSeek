@@ -26,11 +26,13 @@ On Linux or macOS, replace `onnxruntime-directml` with `onnxruntime`.
 python main.py
 ```
 
-On first launch, the app can auto-prepare runtime resources from the remote manifest configured in `src/app/app_meta.py`.
+Models and FFmpeg are **not** shipped with the repo. Expect the runtime-resources dialog on first launch unless everything is already configured.
 
-## 3) Manual Runtime Setup (Fallback)
+## 3) Runtime resources (models & FFmpeg)
 
-If auto-prepare is unavailable, use one of the paths below.
+**Primary workflow:** download the official **zip** from the maintainer cloud folder (see README link), then **import inside the app** (§ 3.1). Use manual file layout (§ 3.2) only for custom setups.
+
+**Note on `src/app/app_meta.py`:** URLs there drive **notice / version / about** JSON and the **「Go to download」** browser shortcut; they may also point at the same cloud folder. Optional HTTP-based download of weights exists in code **only when** `model_manifest_url` returns a **JSON manifest**—many distributions use that field as a **human download page** instead, in which case rely on the zip import flow below.
 
 ### 3.1 Bundled model zip from 123 pan (recommended for contributors)
 

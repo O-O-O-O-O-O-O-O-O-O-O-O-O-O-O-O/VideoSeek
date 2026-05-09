@@ -26,13 +26,11 @@ On Linux or macOS, use `onnxruntime` instead of `onnxruntime-directml` (this pro
 python main.py
 ```
 
-3. First launch runtime resources:
-- The app can auto-prepare runtime resources from the remote manifest in `src/app/app_meta.py`.
-- If auto-prepare is unavailable, see `docs/quickstart.md` for manual setup.
+3. First launch — **models and FFmpeg are not bundled.** Recommended: download the official **zip** from [123 cloud drive (models)](https://1858268090.share.123pan.cn/123pan/VFA7vd-vhJXA), run `python main.py`, open **Import runtime resources**, add the `.zip`, then **Import and Parse** (details in **`docs/quickstart.md` § 3.1**). Advanced manual layout is in § 3.2.
 
 ## Runtime Requirements
 
-- Model files required by the active model profile (default is `clip_onnx`). The app can download them using the remote manifest in `src/app/app_meta.py`. **Contributor-friendly path:** the same [123 cloud drive (models)](https://1858268090.share.123pan.cn/123pan/VFA7vd-vhJXA) hosts **maintainer-built zip packages** (often with a PDF tutorial). After `python main.py`, import the zip **inside the app** (drag into the runtime-resources dialog → **Import and Parse**); see **`docs/quickstart.md` § 3.1**.
+- Model files depend on the active model profile (default `clip_onnx`). **Primary workflow:** get the maintainer-built zip from [123 cloud drive (models)](https://1858268090.share.123pan.cn/123pan/VFA7vd-vhJXA) and **import it in the app** (same steps as quickstart § 3.1). `src/app/app_meta.py` still holds URLs for **release notes / version / about** and may point **「Go to download」** at the cloud folder; it is **not** assumed that ONNX files are fetched automatically without that zip flow.
 - Default `clip_onnx` example files:
   - `clip_visual.onnx`
   - `clip_text.onnx`

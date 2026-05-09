@@ -265,8 +265,8 @@ This file is intended for product/distribution control rather than user edits.
 - Prefer external runtime resources instead of bundling large artifacts in each release.
 - Default external model directory on Windows: `%LOCALAPPDATA%\VideoSeek\models`
 - Default managed ffmpeg path: `%LOCALAPPDATA%\VideoSeek\bin\ffmpeg.exe`
-- If `model_manifest_url` is configured, app can prepare both model files and ffmpeg from one manifest.
-- Manifest sources can include primary and mirrors; app falls back to the next source when one fails.
+- **Documented user path:** maintainer-built **zip** from cloud storage → **Import and Parse** in-app (`model_package_service`).
+- **Optional HTTP path:** if `model_manifest_url` points to a **JSON manifest** listing file sources, legacy workers can download ONNX/FFmpeg entries; if the URL is a normal download page instead, use zip import—do not assume automatic weight download.
 - Model file requirements come from the active model profile (default profile is `clip_onnx`).
 
 ## Remote Library Notes
