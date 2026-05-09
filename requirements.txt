@@ -1,0 +1,26 @@
+# VideoSeek — Python dependencies
+# Install: pip install -r requirements.txt
+#
+# ONNX Runtime: Windows uses the DirectML build (GPU via DirectML); other platforms use the standard CPU wheel.
+onnxruntime-directml; sys_platform == "win32"
+onnxruntime; sys_platform != "win32"
+
+opencv-python
+PySide6
+faiss-cpu
+numpy
+pillow
+# SigLIP ONNX profiles load tokenizer.json via Hugging Face tokenizers (default clip_onnx does not need this)
+tokenizers
+ftfy
+regex
+yt-dlp
+python-vlc
+
+# Mobile bridge (local HTTP server / phone upload) — see src/web/mobile_bridge.py
+fastapi
+uvicorn
+python-multipart
+
+# QR code for mobile bridge dialog — optional; UI works without it but QR image may be missing
+qrcode[pil]
