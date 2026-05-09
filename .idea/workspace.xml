@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="9b1fded6-c71f-46c4-9f35-b98f0ce740c1" name="更改" comment="代码解耦">
+    <list default="true" id="9b1fded6-c71f-46c4-9f35-b98f0ce740c1" name="更改" comment="init补">
       <change afterPath="$PROJECT_DIR$/docs/static_call_analysis.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/libvlc.dll" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/libvlccore.dll" afterDir="false" />
@@ -374,6 +374,9 @@
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/visualization/libprojectm_plugin.dll" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/visualization/libvisual_plugin.dll" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.zh-CN.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.zh-CN.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/quickstart.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/quickstart.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/app/app_meta.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/app_meta.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/static/favicon.ico" beforeDir="false" />
     </list>
@@ -471,8 +474,8 @@
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="D:\PycharmProjects\VideoSeek" />
-      <recent name="D:\PycharmProjects\VideoSeek\static" />
       <recent name="D:\PycharmProjects\VideoSeek\vlc_lib" />
+      <recent name="D:\PycharmProjects\VideoSeek\static" />
       <recent name="D:\PycharmProjects\VideoSeek\data" />
       <recent name="D:\PycharmProjects\VideoSeek\models" />
     </key>
@@ -694,14 +697,7 @@
       <workItem from="1778316355472" duration="331000" />
       <workItem from="1778316957266" duration="700000" />
       <workItem from="1778317683071" duration="195000" />
-    </task>
-    <task id="LOCAL-00015" summary="打包优化">
-      <option name="closed" value="true" />
-      <created>1774153732165</created>
-      <option name="number" value="00015" />
-      <option name="presentableId" value="LOCAL-00015" />
-      <option name="project" value="LOCAL" />
-      <updated>1774153732165</updated>
+      <workItem from="1778318533084" duration="2613000" />
     </task>
     <task id="LOCAL-00016" summary="打包优化">
       <option name="closed" value="true" />
@@ -1087,7 +1083,15 @@
       <option name="project" value="LOCAL" />
       <updated>1778316683802</updated>
     </task>
-    <option name="localTasksCounter" value="64" />
+    <task id="LOCAL-00064" summary="init补">
+      <option name="closed" value="true" />
+      <created>1778318852435</created>
+      <option name="number" value="00064" />
+      <option name="presentableId" value="LOCAL-00064" />
+      <option name="project" value="LOCAL" />
+      <updated>1778318852435</updated>
+    </task>
+    <option name="localTasksCounter" value="65" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -1117,7 +1121,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="拆分同步、搜索功能" />
     <MESSAGE value="打包优化" />
     <MESSAGE value="删除无用函数" />
     <MESSAGE value="修改nuitka打包路径问题" />
@@ -1142,7 +1145,8 @@
     <MESSAGE value="GPU降级处理、数据迁移、BUG修复" />
     <MESSAGE value="适配多模型架构重构" />
     <MESSAGE value="代码解耦" />
-    <option name="LAST_COMMIT_MESSAGE" value="代码解耦" />
+    <MESSAGE value="init补" />
+    <option name="LAST_COMMIT_MESSAGE" value="init补" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

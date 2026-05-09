@@ -9,8 +9,16 @@ Desktop semantic video search built with PySide6, ONNX Runtime, FAISS, and FFmpe
 1. Install dependencies:
 
 ```bash
-pip install onnxruntime-directml opencv-python PySide6 faiss-cpu numpy pillow ftfy regex yt-dlp python-vlc
+pip install -r requirements.txt
 ```
+
+Or install explicitly (Windows; includes mobile bridge and QR):
+
+```bash
+pip install onnxruntime-directml opencv-python PySide6 faiss-cpu numpy pillow tokenizers ftfy regex yt-dlp python-vlc fastapi uvicorn python-multipart "qrcode[pil]"
+```
+
+On Linux or macOS, use `onnxruntime` instead of `onnxruntime-directml` (this project’s GPU path targets Windows DirectML; inference falls back to CPU elsewhere).
 
 2. Start the app:
 
@@ -24,7 +32,7 @@ python main.py
 
 ## Runtime Requirements
 
-- Model files required by the active model profile (default is `clip_onnx`).
+- Model files required by the active model profile (default is `clip_onnx`). The app can download them using the remote manifest in `src/app/app_meta.py`. If you need to fetch or place files yourself, a manual package is also available: [123 cloud drive (models)](https://1858268090.share.123pan.cn/123pan/VFA7vd-vhJXA).
 - Default `clip_onnx` example files:
   - `clip_visual.onnx`
   - `clip_text.onnx`

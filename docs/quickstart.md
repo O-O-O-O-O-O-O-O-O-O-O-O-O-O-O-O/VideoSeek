@@ -9,8 +9,16 @@ This guide contains detailed setup, runtime resources, and troubleshooting notes
 - Install dependencies:
 
 ```bash
-pip install onnxruntime-directml opencv-python PySide6 faiss-cpu numpy pillow ftfy regex yt-dlp python-vlc
+pip install -r requirements.txt
 ```
+
+Or explicitly (Windows):
+
+```bash
+pip install onnxruntime-directml opencv-python PySide6 faiss-cpu numpy pillow tokenizers ftfy regex yt-dlp python-vlc fastapi uvicorn python-multipart "qrcode[pil]"
+```
+
+On Linux or macOS, replace `onnxruntime-directml` with `onnxruntime`.
 
 ## 2) Run
 
@@ -29,6 +37,8 @@ If auto-prepare is unavailable, prepare these items manually.
 Place files under one of:
 - `%LOCALAPPDATA%\VideoSeek\models\`
 - `models/` under project root
+
+If the in-app / manifest download is not available, you can download a model bundle manually from: [123 cloud drive (models)](https://1858268090.share.123pan.cn/123pan/VFA7vd-vhJXA) — unpack or copy files so they match the active profile layout under one of the paths above.
 
 Required files are resolved from the active model profile.
 
