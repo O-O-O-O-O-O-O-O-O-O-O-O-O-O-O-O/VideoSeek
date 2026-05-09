@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="9b1fded6-c71f-46c4-9f35-b98f0ce740c1" name="更改" comment="init补">
+    <list default="true" id="9b1fded6-c71f-46c4-9f35-b98f0ce740c1" name="更改" comment="补充说明">
       <change afterPath="$PROJECT_DIR$/docs/static_call_analysis.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/libvlc.dll" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/libvlccore.dll" afterDir="false" />
@@ -373,11 +373,11 @@
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/visualization/libgoom_plugin.dll" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/visualization/libprojectm_plugin.dll" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/visualization/libvisual_plugin.dll" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/VideoSeek.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/VideoSeek.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.zh-CN.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.zh-CN.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/quickstart.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/quickstart.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/app/app_meta.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/app_meta.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/clip_embedding.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/clip_embedding.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/tokenizer.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/tokenizer.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/static/favicon.ico" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -698,23 +698,7 @@
       <workItem from="1778316957266" duration="700000" />
       <workItem from="1778317683071" duration="195000" />
       <workItem from="1778318533084" duration="5701000" />
-      <workItem from="1778344849324" duration="538000" />
-    </task>
-    <task id="LOCAL-00017" summary="删除无用函数">
-      <option name="closed" value="true" />
-      <created>1774156507283</created>
-      <option name="number" value="00017" />
-      <option name="presentableId" value="LOCAL-00017" />
-      <option name="project" value="LOCAL" />
-      <updated>1774156507283</updated>
-    </task>
-    <task id="LOCAL-00018" summary="修改nuitka打包路径问题">
-      <option name="closed" value="true" />
-      <created>1774159218689</created>
-      <option name="number" value="00018" />
-      <option name="presentableId" value="LOCAL-00018" />
-      <option name="project" value="LOCAL" />
-      <updated>1774159218689</updated>
+      <workItem from="1778344849324" duration="1385000" />
     </task>
     <task id="LOCAL-00019" summary="readme修改">
       <option name="closed" value="true" />
@@ -1092,7 +1076,23 @@
       <option name="project" value="LOCAL" />
       <updated>1778323771353</updated>
     </task>
-    <option name="localTasksCounter" value="66" />
+    <task id="LOCAL-00066" summary="补充说明">
+      <option name="closed" value="true" />
+      <created>1778345439087</created>
+      <option name="number" value="00066" />
+      <option name="presentableId" value="LOCAL-00066" />
+      <option name="project" value="LOCAL" />
+      <updated>1778345439088</updated>
+    </task>
+    <task id="LOCAL-00067" summary="补充说明">
+      <option name="closed" value="true" />
+      <created>1778345843524</created>
+      <option name="number" value="00067" />
+      <option name="presentableId" value="LOCAL-00067" />
+      <option name="project" value="LOCAL" />
+      <updated>1778345843524</updated>
+    </task>
+    <option name="localTasksCounter" value="68" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -1122,7 +1122,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="打包优化" />
     <MESSAGE value="删除无用函数" />
     <MESSAGE value="修改nuitka打包路径问题" />
     <MESSAGE value="readme修改" />
@@ -1147,7 +1146,8 @@
     <MESSAGE value="适配多模型架构重构" />
     <MESSAGE value="代码解耦" />
     <MESSAGE value="init补" />
-    <option name="LAST_COMMIT_MESSAGE" value="init补" />
+    <MESSAGE value="补充说明" />
+    <option name="LAST_COMMIT_MESSAGE" value="补充说明" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

@@ -55,6 +55,8 @@ Windows 项目内 VLC 目录建议：
 
 ## 测试
 
+常用子集：
+
 ```bash
 python -m unittest ^
   tests.test_runtime_resource_service ^
@@ -62,6 +64,8 @@ python -m unittest ^
   tests.test_download_services ^
   tests.test_controllers
 ```
+
+全量：`python -m unittest discover -s tests -p "test_*.py"`（见 `docs/quickstart.md`）。
 
 ## 更多文档
 

@@ -70,7 +70,9 @@ Project-local layout on Windows:
 
 If VLC runtime is missing/incomplete, search and indexing can still work, but in-app preview playback may not.
 
-## 4) Focused Test Suite
+## 4) Tests
+
+**Focused subset** (fast smoke checks):
 
 ```bash
 python -m unittest ^
@@ -78,6 +80,12 @@ python -m unittest ^
   tests.test_notice_version_utils ^
   tests.test_download_services ^
   tests.test_controllers
+```
+
+**Full suite** (all modules under `tests/`):
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
 ```
 
 ## 5) Common Issues

@@ -55,6 +55,8 @@ If `vlc_lib/` is missing or incomplete, search/indexing may still work but previ
 
 ## Tests
 
+Focused subset:
+
 ```bash
 python -m unittest ^
   tests.test_runtime_resource_service ^
@@ -62,6 +64,8 @@ python -m unittest ^
   tests.test_download_services ^
   tests.test_controllers
 ```
+
+Full suite: `python -m unittest discover -s tests -p "test_*.py"` (see `docs/quickstart.md`).
 
 ## More Docs
 
