@@ -13,7 +13,12 @@ from src.app.config import get_data_storage_paths, load_config
 from src.core.clip_embedding import get_clip_embeddings_batch
 from src.core.faiss_index import create_clip_index
 from src.storage.asset_store import load_remote_vector_payload, save_remote_vector_payload
-from src.storage.config_store import get_active_embedding_spec, get_remote_model_asset_paths
+from src.storage.config_store import (
+    get_active_embedding_spec,
+    get_config_fps,
+    get_remote_max_frames,
+    get_remote_model_asset_paths,
+)
 from src.services.remote_link_precheck_service import (
     build_existing_source_candidates as _build_existing_source_candidates,
     build_precheck_source_candidates as _build_precheck_source_candidates,
@@ -125,9 +130,9 @@ def build_remote_library_from_links(
         raise RuntimeError("No valid video URLs found in input.")
 
     config = load_config()
-    sampled_fps = float(fps) if float(fps) > 0 else float(config.get("fps", 1.0))
+    sampled_fps = float(fps) if float(fps) > 0 else get_config_fps(config)
     if max_frames_per_video is None:
-        max_frames_per_video = int(config.get("remote_max_frames", 2000))
+        max_frames_per_video = get_remote_max_frames(config)
     max_frames_per_video = max(50, int(max_frames_per_video))
     paths = get_remote_library_paths()
     index_file = paths["index_file"]

@@ -27,7 +27,10 @@ else:
 faiss_module = sys.modules.setdefault("faiss", types.SimpleNamespace())
 faiss_module.normalize_L2 = getattr(faiss_module, "normalize_L2", lambda *_args, **_kwargs: None)
 
+from src.domain.remote_search_hit import RemoteSearchHit
+from src.domain.search_hit import SearchHit
 from src.services import model_service
+from src.services import remote_search_service
 from src.services import indexing_service, search_service
 from src.services import library_service, remote_library_service
 from src.services import model_package_service
@@ -1093,7 +1096,7 @@ class SearchServiceTests(unittest.TestCase):
             def reconstruct(self, idx):
                 return np.array([1.0, 0.0], dtype=np.float32)
 
-        results = [(1.0, 1.0, 0.8, "a.mp4")]
+        results = [SearchHit(1.0, 1.0, 0.8, "a.mp4")]
         frame_ids = [1]
         query_vector = np.array([[1.0, 0.0]], dtype=np.float32)
         timestamps = np.array([0.0, 1.0, 2.0], dtype=np.float32)
@@ -1122,7 +1125,7 @@ class SearchServiceTests(unittest.TestCase):
             def reconstruct(self, idx):
                 return self._vectors[idx]
 
-        results = [(1.0, 1.0, 0.8, "a.mp4")]
+        results = [SearchHit(1.0, 1.0, 0.8, "a.mp4")]
         frame_ids = [1]
         query_vector = np.array([[1.0, 0.0]], dtype=np.float32)
         timestamps = np.array([0.0, 1.0, 2.0], dtype=np.float32)
@@ -1142,9 +1145,48 @@ class SearchServiceTests(unittest.TestCase):
             paths,
             config=config,
         )
-        self.assertEqual(reranked[0][0], 2.0)
-        self.assertEqual(reranked[0][1], 2.0)
-        self.assertGreater(reranked[0][2], results[0][2])
+        self.assertEqual(reranked[0].start_sec, 2.0)
+        self.assertEqual(reranked[0].end_sec, 2.0)
+        self.assertGreater(reranked[0].score, results[0].score)
+
+
+class RemoteSearchServiceTests(unittest.TestCase):
+    @patch("src.services.remote_search_service.load_config", return_value={"search_top_k": 20})
+    @patch("src.services.remote_search_service.load_remote_search_assets", return_value=None)
+    def test_run_remote_search_returns_empty_without_assets(self, _mock_assets, _mock_config):
+        result = remote_search_service.run_remote_search("query", is_text=True)
+        self.assertEqual(result, [])
+
+    @patch("src.services.remote_search_service.load_config", return_value={"search_top_k": 10})
+    @patch("src.services.remote_search_service.build_query_vector")
+    @patch("src.services.remote_search_service.load_remote_search_assets")
+    def test_run_remote_search_returns_remote_search_hits(self, mock_assets, mock_query, _mock_config):
+        class DummyIndex:
+            ntotal = 2
+
+            def search(self, query_vector, actual_k):
+                distances = np.array([[0.95, 0.85]], dtype=np.float32)
+                indices = np.array([[0, 1]], dtype=np.int64)
+                return distances, indices
+
+        mock_query.return_value = np.zeros((1, 512), dtype=np.float32)
+        mock_assets.return_value = {
+            "index": DummyIndex(),
+            "timestamps": np.array([12.0, 34.0], dtype=np.float32),
+            "source_links": ["https://a.example", "https://b.example"],
+            "titles": ["A Title", "B Title"],
+            "paths": ["/x/a.mp4", "/y/b.mp4"],
+            "embedding_spec": None,
+        }
+
+        hits = remote_search_service.run_remote_search("cat", is_text=True)
+        self.assertEqual(len(hits), 2)
+        self.assertIsInstance(hits[0], RemoteSearchHit)
+        self.assertEqual(hits[0].title, "A Title")
+        self.assertAlmostEqual(hits[0].time_sec, 12.0)
+        self.assertAlmostEqual(hits[0].score, 0.95)
+        self.assertEqual(hits[0].source_link, "https://a.example")
+        self.assertEqual(hits[1].title, "B Title")
 
 
 class UtilsTests(unittest.TestCase):

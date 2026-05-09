@@ -1,12 +1,14 @@
 import os
+from typing import List
 
 import numpy as np
 
 from src.app.config import load_config
 from src.app.logging_utils import get_logger
+from src.domain.remote_search_hit import RemoteSearchHit
 from src.core.faiss_index import load_clip_index
 from src.services.search_service import build_query_vector
-from src.storage.config_store import get_active_model_profile, get_remote_model_asset_paths
+from src.storage.config_store import get_active_model_profile, get_remote_model_asset_paths, get_search_top_k
 
 logger = get_logger("remote_search_service")
 
@@ -70,10 +72,10 @@ def _check_remote_asset_compatibility(config, assets):
         )
 
 
-def run_remote_search(query_data, is_text=True, top_k=None):
+def run_remote_search(query_data, is_text=True, top_k=None) -> List[RemoteSearchHit]:
     config = load_config()
     if top_k is None:
-        top_k = int(config.get("search_top_k", 20))
+        top_k = get_search_top_k(config)
     assets = load_remote_search_assets(config)
     if not assets:
         return []
@@ -102,12 +104,12 @@ def run_remote_search(query_data, is_text=True, top_k=None):
         if not title:
             title = os.path.basename(_value_at(paths, item_index, default=f"remote_{item_index}"))
         results.append(
-            {
-                "title": str(title),
-                "time_sec": float(start_sec),
-                "score": float(distances[0][rank]),
-                "source_link": str(source_link),
-            }
+            RemoteSearchHit(
+                title=str(title),
+                time_sec=float(start_sec),
+                score=float(distances[0][rank]),
+                source_link=str(source_link),
+            )
         )
     return results
 

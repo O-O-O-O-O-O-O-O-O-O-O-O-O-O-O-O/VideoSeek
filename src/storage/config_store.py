@@ -1,6 +1,6 @@
 import os
 
-from src.app.config import get_data_storage_paths, load_config, save_config
+from src.app.config import CONFIG_ENUMS, DEFAULT_CONFIG, get_data_storage_paths, load_config, save_config
 
 _PROVIDER_DEFAULT_DIMENSION = {
     "clip_onnx": 512,
@@ -218,3 +218,90 @@ def get_active_embedding_spec(config=None):
         "dimension": dimension,
         "metric": metric,
     }
+
+
+def _app_cfg(config=None):
+    return dict(config or load_config())
+
+
+def get_search_top_k(config=None) -> int:
+    cfg = _app_cfg(config)
+    try:
+        return int(cfg.get("search_top_k", DEFAULT_CONFIG["search_top_k"]))
+    except (TypeError, ValueError):
+        return int(DEFAULT_CONFIG["search_top_k"])
+
+
+def get_search_mode(config=None) -> str:
+    cfg = _app_cfg(config)
+    mode = str(cfg.get("search_mode", DEFAULT_CONFIG["search_mode"]) or "").strip().lower()
+    allowed = CONFIG_ENUMS["search_mode"]
+    return mode if mode in allowed else str(DEFAULT_CONFIG["search_mode"])
+
+
+def get_frame_neighbor_rerank_enabled(config=None) -> bool:
+    return bool(_app_cfg(config).get("frame_neighbor_rerank_enabled", DEFAULT_CONFIG["frame_neighbor_rerank_enabled"]))
+
+
+def get_frame_neighbor_rerank_top_n(config=None) -> int:
+    cfg = _app_cfg(config)
+    try:
+        return int(cfg.get("frame_neighbor_rerank_top_n", DEFAULT_CONFIG["frame_neighbor_rerank_top_n"]))
+    except (TypeError, ValueError):
+        return int(DEFAULT_CONFIG["frame_neighbor_rerank_top_n"])
+
+
+def get_frame_neighbor_rerank_window(config=None) -> int:
+    cfg = _app_cfg(config)
+    try:
+        return int(cfg.get("frame_neighbor_rerank_window", DEFAULT_CONFIG["frame_neighbor_rerank_window"]))
+    except (TypeError, ValueError):
+        return int(DEFAULT_CONFIG["frame_neighbor_rerank_window"])
+
+
+def get_remote_max_frames(config=None) -> int:
+    cfg = _app_cfg(config)
+    try:
+        return int(cfg.get("remote_max_frames", DEFAULT_CONFIG["remote_max_frames"]))
+    except (TypeError, ValueError):
+        return int(DEFAULT_CONFIG["remote_max_frames"])
+
+
+def get_config_fps(config=None) -> float:
+    cfg = _app_cfg(config)
+    try:
+        v = float(cfg.get("fps", DEFAULT_CONFIG["fps"]))
+        return v if v >= 0.01 else float(DEFAULT_CONFIG["fps"])
+    except (TypeError, ValueError):
+        return float(DEFAULT_CONFIG["fps"])
+
+
+def get_similarity_threshold(config=None) -> float:
+    cfg = _app_cfg(config)
+    try:
+        return float(cfg.get("similarity_threshold", DEFAULT_CONFIG["similarity_threshold"]))
+    except (TypeError, ValueError):
+        return float(DEFAULT_CONFIG["similarity_threshold"])
+
+
+def get_max_chunk_duration(config=None) -> float:
+    cfg = _app_cfg(config)
+    try:
+        return float(cfg.get("max_chunk_duration", DEFAULT_CONFIG["max_chunk_duration"]))
+    except (TypeError, ValueError):
+        return float(DEFAULT_CONFIG["max_chunk_duration"])
+
+
+def get_min_chunk_size(config=None) -> int:
+    cfg = _app_cfg(config)
+    try:
+        return int(cfg.get("min_chunk_size", DEFAULT_CONFIG["min_chunk_size"]))
+    except (TypeError, ValueError):
+        return int(DEFAULT_CONFIG["min_chunk_size"])
+
+
+def get_chunk_similarity_mode(config=None) -> str:
+    cfg = _app_cfg(config)
+    mode = str(cfg.get("chunk_similarity_mode", DEFAULT_CONFIG["chunk_similarity_mode"]) or "").strip().lower()
+    allowed = CONFIG_ENUMS["chunk_similarity_mode"]
+    return mode if mode in allowed else str(DEFAULT_CONFIG["chunk_similarity_mode"])

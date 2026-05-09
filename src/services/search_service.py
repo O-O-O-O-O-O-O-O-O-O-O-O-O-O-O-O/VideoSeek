@@ -1,14 +1,24 @@
 import os
+from typing import List
 
 import cv2
 import faiss
 import numpy as np
 
 from src.core.clip_embedding import get_clip_embeddings_batch, get_engine, get_text_embedding
-from src.app.config import load_config
+from src.app.config import DEFAULT_CONFIG, load_config
 from src.app.logging_utils import get_logger
+from src.domain.search_hit import SearchHit
 from src.core.faiss_index import load_clip_index
-from src.storage.config_store import get_active_model_profile, get_global_model_asset_paths
+from src.storage.config_store import (
+    get_active_model_profile,
+    get_frame_neighbor_rerank_enabled,
+    get_frame_neighbor_rerank_top_n,
+    get_frame_neighbor_rerank_window,
+    get_global_model_asset_paths,
+    get_search_mode,
+    get_search_top_k,
+)
 
 logger = get_logger("search_service")
 _FRAME_ASSET_CACHE = {"key": None, "value": (None, None, None)}
@@ -196,7 +206,7 @@ def _search_frame_results_with_ids(query_vector, index, timestamps, video_paths,
             continue
         timestamp = float(timestamps[index_value])
         video_path = video_paths[index_value]
-        matched_results.append((timestamp, timestamp, float(distances[0][rank]), video_path))
+        matched_results.append(SearchHit(timestamp, timestamp, float(distances[0][rank]), video_path))
         matched_ids.append(int(index_value))
     return matched_results, matched_ids
 
@@ -204,11 +214,11 @@ def _search_frame_results_with_ids(query_vector, index, timestamps, video_paths,
 def _apply_frame_neighbor_rerank(results, frame_ids, query_vector, search_index, timestamps, video_paths, config):
     if not results or not frame_ids:
         return results
-    if not bool(config.get("frame_neighbor_rerank_enabled", False)):
+    if not get_frame_neighbor_rerank_enabled(config):
         return results
 
-    max_top_n = int(config.get("frame_neighbor_rerank_top_n", 10) or 10)
-    neighbor_window = int(config.get("frame_neighbor_rerank_window", 2) or 2)
+    max_top_n = int(get_frame_neighbor_rerank_top_n(config) or DEFAULT_CONFIG["frame_neighbor_rerank_top_n"])
+    neighbor_window = int(get_frame_neighbor_rerank_window(config) or DEFAULT_CONFIG["frame_neighbor_rerank_window"])
     if max_top_n <= 0 or neighbor_window <= 0:
         return results
 
@@ -225,8 +235,9 @@ def _apply_frame_neighbor_rerank(results, frame_ids, query_vector, search_index,
             continue
 
         base_path = video_paths[base_id]
-        best_score = float(reranked[rank][2])
-        best_timestamp = float(reranked[rank][0])
+        hit = reranked[rank]
+        best_score = float(hit.score)
+        best_timestamp = float(hit.start_sec)
 
         start = max(0, base_id - neighbor_window)
         end = min(len(video_paths) - 1, base_id + neighbor_window)
@@ -243,20 +254,20 @@ def _apply_frame_neighbor_rerank(results, frame_ids, query_vector, search_index,
                 best_score = score
                 best_timestamp = float(timestamps[candidate_id])
 
-        reranked[rank] = (best_timestamp, best_timestamp, best_score, base_path)
+        reranked[rank] = SearchHit(best_timestamp, best_timestamp, best_score, base_path)
     return reranked
 
 
-def run_search(query_data, is_text=False, top_k=None):
+def run_search(query_data, is_text=False, top_k=None) -> List[SearchHit]:
     # Retained intentionally: exported via src.core.core and reached by
     # worker-side runtime imports that static analysis can miss.
     config = load_config()
-    search_mode = config.get("search_mode", "frame")
+    search_mode = get_search_mode(config)
     logger.info("Running %s search (is_text=%s)", search_mode, is_text)
     if search_mode == "chunk":
         return run_chunk_search(query_data, is_text=is_text, top_k=top_k)
     if top_k is None:
-        top_k = config.get("search_top_k", 20)
+        top_k = get_search_top_k(config)
     search_index, timestamps, video_paths = load_search_assets(config)
     if search_index is None:
         return []
@@ -282,10 +293,10 @@ def run_search(query_data, is_text=False, top_k=None):
     return matched_results
 
 
-def run_chunk_search(query_data, is_text=False, top_k=None):
+def run_chunk_search(query_data, is_text=False, top_k=None) -> List[SearchHit]:
     config = load_config()
     if top_k is None:
-        top_k = config.get("search_top_k", 20)
+        top_k = get_search_top_k(config)
     search_index, ranges, video_paths = load_chunk_search_assets(config)
     if search_index is None:
         return []
@@ -313,7 +324,9 @@ def run_chunk_search(query_data, is_text=False, top_k=None):
         time_range = ranges[index_value]
         start_time = float(time_range[0])
         end_time = float(time_range[1])
-        matched_results.append((start_time, end_time, distances[0][rank], video_paths[index_value]))
+        matched_results.append(
+            SearchHit(start_time, end_time, float(distances[0][rank]), video_paths[index_value])
+        )
     return matched_results
 
 

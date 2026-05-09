@@ -12,6 +12,7 @@ import onnxruntime as ort
 
 from src.app.config import load_config
 from src.app.logging_utils import get_logger
+from src.core.inference_registry import build_inference_engine, register_inference_engine
 from src.core.extract_frames import stream_frames_with_ffmpeg
 from src.core.faiss_index import create_clip_index
 from src.core.semantic_chunking import build_semantic_chunks, chunk_config_payload
@@ -232,14 +233,8 @@ def get_engine():
         logger.info("Inference engine is not initialized; creating a new runtime instance")
         config = load_config()
         profile = get_active_model_profile(config=config)
-        provider = str(profile.get("provider", "") or "").strip()
-        if provider == "siglip2_onnx":
-            from src.core.siglip_provider_draft import SigLIP2OnnxEngine
-
-            resource_dir = get_active_model_resource_dir(config=config)
-            engine = SigLIP2OnnxEngine(resource_dir)
-        else:
-            engine = CLIPOnnxEngine()
+        provider = str(profile.get("provider", "") or "").strip() or "clip_onnx"
+        engine = build_inference_engine(provider)
     return engine
 
 
@@ -939,3 +934,18 @@ def generate_vectors_and_index_for_video(video_path, video_id, index_dir, vector
     ensure_folder_exists(index_file)
     index = create_clip_index(vectors, index_file)
     return vectors, timestamps, index
+
+
+def _register_default_inference_engines():
+    register_inference_engine("clip_onnx", lambda: CLIPOnnxEngine())
+
+    def _siglip_factory():
+        from src.core.siglip_provider_draft import SigLIP2OnnxEngine
+
+        runtime_config = load_config()
+        return SigLIP2OnnxEngine(get_active_model_resource_dir(config=runtime_config))
+
+    register_inference_engine("siglip2_onnx", _siglip_factory)
+
+
+_register_default_inference_engines()

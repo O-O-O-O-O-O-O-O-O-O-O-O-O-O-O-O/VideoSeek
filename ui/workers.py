@@ -8,6 +8,7 @@ from src.app.config import load_config
 from src.app.i18n import get_texts
 from src.app.logging_utils import get_logger
 from src.core.core import run_search
+from src.domain.search_hit import coerce_search_hit
 from src.services.about_service import get_about_payload
 from src.services.ffmpeg_service import download_ffmpeg
 from src.services.library_service import list_local_vector_details
@@ -176,9 +177,12 @@ class ThumbLoader(QThread):
         thumb_width = config.get("thumb_width", 130)
         thumb_height = config.get("thumb_height", 75)
 
-        for row, (start_sec, end_sec, _, video_path) in enumerate(self.results):
+        for row, raw in enumerate(self.results):
             if not self._running:
                 break
+
+            hit = coerce_search_hit(raw)
+            start_sec, end_sec, _, video_path = hit.start_sec, hit.end_sec, hit.score, hit.video_path
 
             thumb_time = float(start_sec)
             if float(end_sec) > float(start_sec):

@@ -8,7 +8,15 @@ from src.core.faiss_index import atomic_save_numpy, create_clip_index, load_clip
 from src.core.semantic_chunking import build_semantic_chunks, chunk_config_payload, unpack_chunks
 from src.core.clip_embedding import generate_vectors_and_index_for_video
 from src.storage.asset_store import load_vector_payload, save_vector_payload
-from src.storage.config_store import get_active_embedding_spec, get_global_model_asset_paths, get_local_model_asset_dirs
+from src.storage.config_store import (
+    get_active_embedding_spec,
+    get_chunk_similarity_mode,
+    get_global_model_asset_paths,
+    get_local_model_asset_dirs,
+    get_max_chunk_duration,
+    get_min_chunk_size,
+    get_similarity_threshold,
+)
 from src.utils import canonicalize_library_path, ensure_folder_exists, get_video_duration_seconds, has_readable_video_stream
 
 VIDEO_EXTS = (".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm")
@@ -178,10 +186,10 @@ def load_video_chunks_by_id(video_id, config):
 
 def _ensure_chunk_payload(data, vectors, timestamps, vector_file, config):
     current_chunk_config = chunk_config_payload(
-        similarity_threshold=config.get("similarity_threshold", 0.85),
-        max_chunk_duration=config.get("max_chunk_duration", 5.0),
-        min_chunk_size=config.get("min_chunk_size", 2),
-        similarity_mode=config.get("chunk_similarity_mode", "chunk"),
+        similarity_threshold=get_similarity_threshold(config),
+        max_chunk_duration=get_max_chunk_duration(config),
+        min_chunk_size=get_min_chunk_size(config),
+        similarity_mode=get_chunk_similarity_mode(config),
     )
     saved_chunk_config = data.get("chunk_config")
     chunks = unpack_chunks(data.get("chunks"))

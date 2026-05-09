@@ -5,6 +5,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTableWidgetItem, QWidget
 
+from src.domain.remote_search_hit import coerce_remote_search_hit
+from src.domain.search_hit import coerce_search_hit
+
 
 def _fallback_text(texts, key, zh_text, en_text):
     if key in texts:
@@ -42,7 +45,14 @@ def populate_result_table(table, results, on_preview, on_locate, on_export, text
     table.setHorizontalHeaderLabels(texts["result_headers"])
     table.setUpdatesEnabled(False)
 
-    for row, (start_sec, end_sec, score, video_path) in enumerate(results):
+    for row, raw in enumerate(results):
+        hit = coerce_search_hit(raw)
+        start_sec, end_sec, score, video_path = (
+            hit.start_sec,
+            hit.end_sec,
+            hit.score,
+            hit.video_path,
+        )
         table.insertRow(row)
 
         order_item = QTableWidgetItem(str(row + 1))
@@ -143,26 +153,27 @@ def populate_network_result_table(table, results, texts):
     table.setHorizontalHeaderLabels(texts["network_result_headers"])
     table.setUpdatesEnabled(False)
 
-    for row, result in enumerate(results):
+    for row, raw in enumerate(results):
+        hit = coerce_remote_search_hit(raw)
         table.insertRow(row)
 
         order_item = QTableWidgetItem(str(row + 1))
         order_item.setTextAlignment(Qt.AlignCenter)
         table.setItem(row, 0, order_item)
 
-        title_item = QTableWidgetItem(str(result.get("title", "")))
-        title_item.setToolTip(str(result.get("title", "")))
+        title_item = QTableWidgetItem(hit.title)
+        title_item.setToolTip(hit.title)
         table.setItem(row, 1, title_item)
 
-        time_item = QTableWidgetItem(_format_time_value(result.get("time_sec", 0.0)))
+        time_item = QTableWidgetItem(_format_time_value(hit.time_sec))
         time_item.setTextAlignment(Qt.AlignCenter)
         table.setItem(row, 2, time_item)
 
-        score_item = QTableWidgetItem(f"{int(float(result.get('score', 0.0)) * 100)}%")
+        score_item = QTableWidgetItem(f"{int(hit.score * 100)}%")
         score_item.setTextAlignment(Qt.AlignCenter)
         table.setItem(row, 3, score_item)
 
-        source_link = str(result.get("source_link", ""))
+        source_link = hit.source_link
         source_item = QTableWidgetItem(source_link)
         source_item.setToolTip(source_link)
         table.setItem(row, 4, source_item)
