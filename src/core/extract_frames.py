@@ -40,6 +40,68 @@ def _build_startupinfo():
     return startupinfo
 
 
+def stream_frames_with_ffmpeg_fixed_fps(video_path, fps):
+    """Extract frames at an explicit FPS (used by remix matching, independent of config sampling rules)."""
+    if fps <= 0:
+        raise ValueError("fps must be positive")
+    command = _build_extract_command(video_path, float(fps))
+    frame_size = 224 * 224 * 3
+    count = 0
+    startupinfo = _build_startupinfo()
+    process = None
+    try:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            startupinfo=startupinfo,
+        )
+        while True:
+            if not process.stdout:
+                break
+            in_bytes = process.stdout.read(frame_size)
+            if len(in_bytes) != frame_size:
+                break
+            frame = np.frombuffer(in_bytes, np.uint8).reshape((224, 224, 3))
+            timestamp = count / float(fps)
+            count += 1
+            yield frame, timestamp
+        return_code = process.wait(timeout=20)
+        stderr_text = ""
+        if process.stderr:
+            stderr_text = process.stderr.read().decode("utf-8", errors="replace").strip()
+        if return_code != 0:
+            logger.error("FFmpeg frame extraction failed for %s with code %s: %s", video_path, return_code, stderr_text)
+            return
+        if count == 0:
+            logger.warning("FFmpeg produced no frames for %s at %.3f FPS", video_path, fps)
+            if stderr_text:
+                logger.warning("FFmpeg stderr for %s: %s", video_path, stderr_text)
+            return
+        logger.info("Frame extraction completed: %s frames for %s at %.3f FPS", count, video_path, fps)
+    except Exception as exc:
+        logger.error("Frame extraction crashed for %s: %s", video_path, exc)
+        return
+    finally:
+        if process is not None:
+            try:
+                if process.stdout:
+                    process.stdout.close()
+            except Exception:
+                pass
+            try:
+                if process.stderr:
+                    process.stderr.close()
+            except Exception:
+                pass
+            try:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5)
+            except Exception:
+                pass
+
+
 def stream_frames_with_ffmpeg(video_path):
     config = load_config()
     video_duration = get_video_duration_seconds(video_path)

@@ -122,6 +122,11 @@ class VlcPreviewPlayer:
                 pass
 
     def shutdown(self, fast=False):
+        """Stop playback and release libvlc resources.
+
+        ``fast`` is kept for call-site compatibility; the native media player is always
+        released so audio does not continue after the widget is hidden.
+        """
         if self._released:
             return
         self._released = True
@@ -145,12 +150,18 @@ class VlcPreviewPlayer:
                 self._player.audio_set_mute(True)
             except Exception:
                 pass
-            if not fast:
+            # Always release the native media player; omitting release() (historically when fast=True)
+            # can leave audio/video playing after the Qt host is hidden or destroyed.
+            try:
                 self._player.release()
+            except Exception:
+                pass
             self._player = None
         if self._instance is not None:
-            if not fast:
+            try:
                 self._instance.release()
+            except Exception:
+                pass
             self._instance = None
 
     def _initialize(self):

@@ -19,6 +19,15 @@ QWidget {
 #PageHeader, #PanelCard, #SubPanelCard {
     background: __PANEL__;
 }
+#RemixSectionDivider {
+    color: __LINE__;
+    background: __LINE__;
+    border: none;
+    max-height: 1px;
+    min-height: 1px;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
 #NoticeCard {
     background: __NOTICE_BG__;
     border: 1px solid __NOTICE_LINE__;
@@ -60,6 +69,37 @@ QWidget {
 }
 #CardHint {
     line-height: 1.45em;
+}
+QRadioButton {
+    color: __HEADLINE__;
+    spacing: 10px;
+    background: transparent;
+}
+QRadioButton::indicator {
+    width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    border: 1px solid __LINE_STRONG__;
+    background: __FIELD__;
+}
+QRadioButton::indicator:unchecked:hover {
+    border-color: __ACCENT__;
+    background: __TRACK__;
+}
+QRadioButton::indicator:checked {
+    border: 5px solid __ACCENT__;
+    background: __PANEL__;
+}
+QRadioButton::indicator:checked:hover {
+    border-color: __ACCENT_HOVER__;
+    background: __PANEL__;
+}
+QRadioButton:disabled {
+    color: __MUTED__;
+}
+QRadioButton::indicator:disabled {
+    border-color: __LINE__;
+    background: __FIELD__;
 }
 #StatusHint {
     color: __MUTED__;
@@ -500,6 +540,32 @@ QToolTip, QMessageBox, QDialog {
     background: __PANEL__;
     color: __HEADLINE__;
     border: 1px solid __LINE__;
+}
+QToolTip {
+    max-width: 360px;
+    padding: 6px 8px;
+}
+#RemixScopeCheck {
+    spacing: 0;
+}
+#RemixScopeCheck::indicator {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    border: 1px solid __LINE_STRONG__;
+    background: __FIELD__;
+}
+#RemixScopeCheck::indicator:hover {
+    border-color: __ACCENT__;
+    background: __TRACK__;
+}
+#RemixScopeCheck::indicator:checked {
+    background: __ACCENT__;
+    border: 1px solid __ACCENT_HOVER__;
+}
+#RemixScopeCheck::indicator:checked:hover {
+    background: __ACCENT_HOVER__;
+    border: 1px solid __ACCENT_HOVER__;
 }
 """
 

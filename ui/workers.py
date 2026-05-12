@@ -16,6 +16,7 @@ from src.services.model_package_service import import_model_package_zip, import_
 from src.services.model_service import download_models
 from src.services.notice_service import get_notice_payload
 from src.services.remote_library_service import build_remote_library_from_links
+from src.services.remix_match_service import run_remix_match
 from src.services.search_service import warmup_search_runtime
 from src.services.remote_search_service import run_remote_search
 from src.services.version_service import get_version_status
@@ -42,6 +43,68 @@ class SearchWorker(QThread):
             traceback.print_exc()
             error_text = str(exc).strip() or repr(exc)
             print(f"Search Error: {error_text}")
+            self.error_signal.emit(error_text)
+        finally:
+            self.finished.emit()
+
+
+class RemixMatchWorker(QThread):
+    result_ready = Signal(list)
+    error_signal = Signal(str)
+    stopped_signal = Signal()
+    finished = Signal()
+    progress_signal = Signal(str)
+
+    def __init__(
+        self,
+        mix_path,
+        scope_paths,
+        sample_fps,
+        score_threshold,
+        merge_gap_sec,
+        min_segment_sec,
+        remix_cluster_gap_sec,
+    ):
+        super().__init__()
+        self.mix_path = mix_path
+        self.scope_paths = scope_paths
+        self.sample_fps = float(sample_fps)
+        self.score_threshold = float(score_threshold)
+        self.merge_gap_sec = float(merge_gap_sec)
+        self.min_segment_sec = float(min_segment_sec)
+        self.remix_cluster_gap_sec = float(remix_cluster_gap_sec)
+        self._stop_requested = False
+
+    def stop(self):
+        self._stop_requested = True
+
+    def run(self):
+        try:
+            def on_progress(_pct, msg):
+                if msg:
+                    self.progress_signal.emit(str(msg))
+
+            def should_stop():
+                return self._stop_requested
+
+            results = run_remix_match(
+                self.mix_path,
+                scope_paths=self.scope_paths,
+                sample_fps=self.sample_fps,
+                score_threshold=self.score_threshold,
+                merge_gap_sec=self.merge_gap_sec,
+                min_segment_sec=self.min_segment_sec,
+                remix_cluster_gap_sec=self.remix_cluster_gap_sec,
+                progress_callback=on_progress,
+                should_stop=should_stop,
+            )
+            self.result_ready.emit(list(results) if results is not None else [])
+        except InterruptedError:
+            self.stopped_signal.emit()
+        except Exception as exc:
+            traceback.print_exc()
+            error_text = str(exc).strip() or repr(exc)
+            print(f"Remix match error: {error_text}")
             self.error_signal.emit(error_text)
         finally:
             self.finished.emit()

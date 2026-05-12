@@ -3,10 +3,59 @@ import webbrowser
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTableWidgetItem, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.domain.remote_search_hit import coerce_remote_search_hit
+from src.domain.remix_search_hit import coerce_remix_search_hit
 from src.domain.search_hit import coerce_search_hit
+
+
+def remix_scope_row_checkbox(table: QTableWidget, row: int) -> QCheckBox | None:
+    """Resolve QCheckBox for remix scope table column 0 (may be wrapped for layout)."""
+    w = table.cellWidget(row, 0)
+    if isinstance(w, QCheckBox):
+        return w
+    if w is not None:
+        found = w.findChildren(QCheckBox)
+        if found:
+            return found[0]
+    return None
+
+
+def build_remix_scope_checkbox_widget(video_path: str, *, checked: bool = True) -> tuple[QWidget, QCheckBox]:
+    """Centered checkbox cell for remix scope table; returns (wrapper, checkbox)."""
+    cb = QCheckBox()
+    cb.setObjectName("RemixScopeCheck")
+    cb.setProperty("video_path", video_path)
+    cb.setChecked(checked)
+    cb.setCursor(Qt.PointingHandCursor)
+    cb.setFocusPolicy(Qt.StrongFocus)
+    cb.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+    wrap = QWidget()
+    wrap.setFocusPolicy(Qt.NoFocus)
+    outer = QVBoxLayout(wrap)
+    outer.setContentsMargins(0, 0, 0, 0)
+    outer.setSpacing(0)
+    outer.addStretch(1)
+    mid = QHBoxLayout()
+    mid.setContentsMargins(0, 0, 0, 0)
+    mid.setSpacing(0)
+    mid.addStretch(1)
+    mid.addWidget(cb, 0, Qt.AlignCenter)
+    mid.addStretch(1)
+    outer.addLayout(mid)
+    outer.addStretch(1)
+    return wrap, cb
 
 
 def _fallback_text(texts, key, zh_text, en_text):
@@ -93,6 +142,79 @@ def populate_result_table(table, results, on_preview, on_locate, on_export, text
             row,
             6,
             _build_result_actions(video_path, start_sec, end_sec, on_preview, on_locate, on_export, texts),
+        )
+
+    table.setUpdatesEnabled(True)
+
+
+def populate_remix_result_table(table, results, remix_video_path, on_compare, on_locate, on_export, texts):
+    table.setRowCount(0)
+    table.setHorizontalHeaderLabels(texts["remix_result_headers"])
+    table.setUpdatesEnabled(False)
+    remix_path = os.fspath(remix_video_path or "").strip()
+
+    for row, raw in enumerate(results):
+        hit = coerce_remix_search_hit(raw)
+        start_sec = hit.start_sec
+        end_sec = hit.end_sec
+        score = hit.score
+        video_path = hit.video_path
+        remix_start = float(hit.remix_start_sec)
+        remix_end = float(hit.remix_end_sec)
+        table.insertRow(row)
+
+        order_item = QTableWidgetItem(str(row + 1))
+        order_item.setTextAlignment(Qt.AlignCenter)
+        order_item.setData(
+            Qt.UserRole,
+            {
+                "video_path": video_path,
+                "start_sec": float(start_sec),
+                "end_sec": float(end_sec),
+                "score": float(score),
+                "remix_start_sec": remix_start,
+                "remix_end_sec": remix_end,
+                "remix_video_path": remix_path,
+            },
+        )
+        table.setItem(row, 0, order_item)
+
+        preview_placeholder = QLabel(texts["thumb_loading"])
+        preview_placeholder.setAlignment(Qt.AlignCenter)
+        table.setCellWidget(row, 1, preview_placeholder)
+
+        name_item = QTableWidgetItem(os.path.basename(video_path))
+        name_item.setTextAlignment(Qt.AlignCenter)
+        name_item.setToolTip(video_path)
+        table.setItem(row, 2, name_item)
+
+        source_time_item = QTableWidgetItem(_format_time_range(start_sec, end_sec))
+        source_time_item.setTextAlignment(Qt.AlignCenter)
+        table.setItem(row, 3, source_time_item)
+
+        remix_time_item = QTableWidgetItem(_format_time_range(remix_start, remix_end))
+        remix_time_item.setTextAlignment(Qt.AlignCenter)
+        table.setItem(row, 4, remix_time_item)
+
+        score_item = QTableWidgetItem(f"{int(score * 100)}%")
+        score_item.setTextAlignment(Qt.AlignCenter)
+        table.setItem(row, 5, score_item)
+
+        table.setCellWidget(
+            row,
+            6,
+            _build_remix_result_actions(
+                remix_path,
+                remix_start,
+                remix_end,
+                video_path,
+                start_sec,
+                end_sec,
+                on_compare,
+                on_locate,
+                on_export,
+                texts,
+            ),
         )
 
     table.setUpdatesEnabled(True)
@@ -275,6 +397,63 @@ def _build_result_actions(video_path, start_sec, end_sec, on_preview, on_locate,
     )
 
     layout.addWidget(preview_button)
+    layout.addWidget(locate_button)
+    layout.addWidget(export_button)
+    return container
+
+
+def _build_remix_result_actions(
+    remix_path,
+    remix_start_sec,
+    remix_end_sec,
+    video_path,
+    start_sec,
+    end_sec,
+    on_compare,
+    on_locate,
+    on_export,
+    texts,
+):
+    container = QWidget()
+    layout = QHBoxLayout(container)
+    layout.setContentsMargins(8, 0, 8, 0)
+    layout.setSpacing(6)
+    layout.setAlignment(Qt.AlignCenter)
+
+    compare_button = QPushButton(_fallback_text(texts, "remix_compare", "对比", "Compare"))
+    compare_button.setProperty("class", "TableBtn")
+    compare_button.setFixedSize(58, 30)
+    compare_button.setCursor(Qt.PointingHandCursor)
+    compare_button.setToolTip(
+        _fallback_text(texts, "remix_compare_tip", "并排对比混剪片段与对应原片", "Side-by-side remix vs source clip")
+    )
+    compare_button.clicked.connect(
+        lambda _,
+        rp=remix_path,
+        rs=remix_start_sec,
+        re=remix_end_sec,
+        sp=video_path,
+        ss=start_sec,
+        se=end_sec: on_compare(rp, rs, re, sp, ss, se)
+    )
+
+    locate_button = QPushButton(texts["locate"])
+    locate_button.setProperty("class", "TableLocateBtn")
+    locate_button.setFixedSize(58, 30)
+    locate_button.setCursor(Qt.PointingHandCursor)
+    locate_button.setToolTip(texts["locate_tip"])
+    locate_button.clicked.connect(lambda _, path=video_path: on_locate(path))
+
+    export_button = QPushButton(_fallback_text(texts, "export_clip", "导出", "Export"))
+    export_button.setProperty("class", "TableBtn")
+    export_button.setFixedSize(58, 30)
+    export_button.setCursor(Qt.PointingHandCursor)
+    export_button.setToolTip(_fallback_text(texts, "export_clip_tip", "导出原画质片段", "Export original-quality clip"))
+    export_button.clicked.connect(
+        lambda _, path=video_path, clip_start=start_sec, clip_end=end_sec: on_export(path, clip_start, clip_end)
+    )
+
+    layout.addWidget(compare_button)
     layout.addWidget(locate_button)
     layout.addWidget(export_button)
     return container

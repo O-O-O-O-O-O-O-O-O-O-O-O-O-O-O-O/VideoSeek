@@ -2,6 +2,7 @@ from PySide6.QtCore import QEvent, QPoint, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -13,12 +14,14 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
     QStackedWidget,
     QTextEdit,
     QTableWidget,
+    QTableWidgetItem,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -270,10 +273,12 @@ class NavigationSidebar(QWidget):
 
         self.btn_page_search = self._build_nav_button("Search", checked=True)
         self.btn_page_link = self._build_nav_button("Link Match")
+        self.btn_page_remix = self._build_nav_button("Remix", checked=False)
         self.btn_page_library = self._build_nav_button("Libraries")
         self.btn_page_settings = self._build_nav_button("Settings")
         layout.addWidget(self.btn_page_search)
         layout.addWidget(self.btn_page_link)
+        layout.addWidget(self.btn_page_remix)
         layout.addWidget(self.btn_page_library)
         layout.addWidget(self.btn_page_settings)
         self.runtime_hint = QLabel("")
@@ -310,6 +315,7 @@ class NavigationSidebar(QWidget):
         mapping = {
             "search": self.btn_page_search,
             "link": self.btn_page_link,
+            "remix": self.btn_page_remix,
             "library": self.btn_page_library,
             "settings": self.btn_page_settings,
         }
@@ -797,6 +803,233 @@ class LinkResultTable(QTableWidget):
         self.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
         self.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
         self.horizontalHeader().setSectionResizeMode(5, QHeaderView.Fixed)
+
+
+class RemixMatchPage(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(12)
+
+        self.header = PageHeader()
+        root.addWidget(self.header)
+
+        spin_w = max(104, COMPONENT_SIZES.get("settings_input_width", 116) + 8)
+
+        def make_divider():
+            line = QFrame()
+            line.setObjectName("RemixSectionDivider")
+            line.setFrameShape(QFrame.HLine)
+            line.setFrameShadow(QFrame.Plain)
+            line.setFixedHeight(1)
+            return line
+
+        self.match_card = QFrame()
+        self.match_card.setObjectName("PanelCard")
+        match_layout = QVBoxLayout(self.match_card)
+        match_layout.setContentsMargins(18, 18, 18, 18)
+        match_layout.setSpacing(12)
+
+        self.mix_label = QLabel()
+        self.mix_label.setObjectName("CardTitle")
+        self.mix_hint = QLabel()
+        self.mix_hint.setObjectName("CardHint")
+        self.mix_hint.setWordWrap(True)
+        mix_row = QHBoxLayout()
+        mix_row.setSpacing(8)
+        self.input_mix_path = QLineEdit()
+        self.input_mix_path.setObjectName("SearchInput")
+        self.btn_browse_mix = QPushButton()
+        self.btn_browse_mix.setObjectName("AccentGhostButton")
+        self.btn_browse_mix.setMinimumWidth(100)
+        mix_row.addWidget(self.input_mix_path, 1)
+        mix_row.addWidget(self.btn_browse_mix, 0)
+
+        self.section_params_title = QLabel()
+        self.section_params_title.setObjectName("CardTitle")
+
+        params = QGridLayout()
+        params.setHorizontalSpacing(14)
+        params.setVerticalSpacing(10)
+        params.setColumnStretch(4, 1)
+        self.lbl_sample_fps = QLabel()
+        self.lbl_sample_fps.setObjectName("CardHint")
+        self.input_sample_fps = NoWheelDoubleSpinBox()
+        self.input_sample_fps.setRange(0.1, 12.0)
+        self.input_sample_fps.setDecimals(2)
+        self.input_sample_fps.setSingleStep(0.1)
+        self.input_sample_fps.setValue(1.0)
+        self.lbl_score = QLabel()
+        self.lbl_score.setObjectName("CardHint")
+        self.input_score_threshold = NoWheelDoubleSpinBox()
+        self.input_score_threshold.setRange(0.05, 0.99)
+        self.input_score_threshold.setDecimals(2)
+        self.input_score_threshold.setSingleStep(0.02)
+        self.input_score_threshold.setValue(0.26)
+        self.lbl_gap = QLabel()
+        self.lbl_gap.setObjectName("CardHint")
+        self.input_merge_gap = NoWheelDoubleSpinBox()
+        self.input_merge_gap.setRange(0.2, 30.0)
+        self.input_merge_gap.setDecimals(1)
+        self.input_merge_gap.setSingleStep(0.5)
+        self.input_merge_gap.setValue(2.5)
+        self.lbl_min_seg = QLabel()
+        self.lbl_min_seg.setObjectName("CardHint")
+        self.input_min_segment = NoWheelDoubleSpinBox()
+        self.input_min_segment.setRange(0.0, 120.0)
+        self.input_min_segment.setDecimals(1)
+        self.input_min_segment.setSingleStep(0.5)
+        self.input_min_segment.setValue(1.5)
+        for spin in (
+            self.input_sample_fps,
+            self.input_score_threshold,
+            self.input_merge_gap,
+            self.input_min_segment,
+        ):
+            spin.setMinimumWidth(spin_w)
+        params.addWidget(self.lbl_sample_fps, 0, 0)
+        params.addWidget(self.input_sample_fps, 0, 1)
+        params.addWidget(self.lbl_score, 0, 2)
+        params.addWidget(self.input_score_threshold, 0, 3)
+        params.addWidget(self.lbl_gap, 1, 0)
+        params.addWidget(self.input_merge_gap, 1, 1)
+        params.addWidget(self.lbl_min_seg, 1, 2)
+        params.addWidget(self.input_min_segment, 1, 3)
+        self.lbl_remix_cluster = QLabel()
+        self.lbl_remix_cluster.setObjectName("CardHint")
+        self.input_remix_cluster_gap = NoWheelDoubleSpinBox()
+        self.input_remix_cluster_gap.setRange(0.5, 90.0)
+        self.input_remix_cluster_gap.setDecimals(1)
+        self.input_remix_cluster_gap.setSingleStep(0.5)
+        self.input_remix_cluster_gap.setValue(2.5)
+        self.input_remix_cluster_gap.setMinimumWidth(spin_w)
+        cluster_wrap = QWidget()
+        cluster_row = QHBoxLayout(cluster_wrap)
+        cluster_row.setContentsMargins(0, 0, 0, 0)
+        cluster_row.setSpacing(12)
+        cluster_row.addWidget(self.lbl_remix_cluster, 0)
+        cluster_row.addWidget(self.input_remix_cluster_gap, 0)
+        cluster_row.addStretch(1)
+        params.addWidget(cluster_wrap, 2, 0, 1, 4)
+
+        self.remix_params_guide = QLabel()
+        self.remix_params_guide.setObjectName("CardHint")
+        self.remix_params_guide.setWordWrap(True)
+        self.remix_params_guide.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.btn_open_remix_cache = QPushButton()
+        self.btn_open_remix_cache.setObjectName("AccentGhostButton")
+        self.btn_open_remix_cache.setMinimumWidth(120)
+
+        guide_panel = QFrame()
+        guide_panel.setObjectName("SubPanelCard")
+        guide_layout = QVBoxLayout(guide_panel)
+        guide_layout.setContentsMargins(14, 12, 14, 12)
+        guide_layout.setSpacing(10)
+        guide_layout.addWidget(self.remix_params_guide)
+        remix_cache_btn_row = QHBoxLayout()
+        remix_cache_btn_row.addStretch(1)
+        remix_cache_btn_row.addWidget(self.btn_open_remix_cache)
+        guide_layout.addLayout(remix_cache_btn_row)
+
+        match_layout.addWidget(self.mix_label)
+        match_layout.addWidget(self.mix_hint)
+        match_layout.addLayout(mix_row)
+        match_layout.addWidget(make_divider())
+        match_layout.addWidget(self.section_params_title)
+        match_layout.addLayout(params)
+        match_layout.addWidget(make_divider())
+        match_layout.addWidget(guide_panel)
+        root.addWidget(self.match_card)
+
+        self.scope_card = QFrame()
+        self.scope_card.setObjectName("PanelCard")
+        scope_layout = QVBoxLayout(self.scope_card)
+        scope_layout.setContentsMargins(18, 18, 18, 18)
+        scope_layout.setSpacing(12)
+
+        self.scope_title = QLabel()
+        self.scope_title.setObjectName("CardTitle")
+        self.scope_group = QButtonGroup(self)
+        self.radio_scope_all = QRadioButton()
+        self.radio_scope_restricted = QRadioButton()
+        self.scope_group.addButton(self.radio_scope_all, 0)
+        self.scope_group.addButton(self.radio_scope_restricted, 1)
+        self.radio_scope_all.setChecked(True)
+        scope_radio_row = QHBoxLayout()
+        scope_radio_row.setSpacing(16)
+        scope_radio_row.addWidget(self.radio_scope_all)
+        scope_radio_row.addWidget(self.radio_scope_restricted)
+        scope_radio_row.addStretch(1)
+        self.scope_table_hint = QLabel()
+        self.scope_table_hint.setObjectName("CardHint")
+        self.scope_table_hint.setWordWrap(True)
+        scope_tool_row = QHBoxLayout()
+        scope_tool_row.setSpacing(8)
+        self.btn_scope_all = QPushButton()
+        self.btn_scope_all.setObjectName("GhostButton")
+        self.btn_scope_none = QPushButton()
+        self.btn_scope_none.setObjectName("GhostButton")
+        scope_tool_row.addWidget(self.btn_scope_all)
+        scope_tool_row.addWidget(self.btn_scope_none)
+        scope_tool_row.addStretch(1)
+        self.scope_table = QTableWidget(0, 3)
+        self.scope_table.setObjectName("LibTable")
+        self.scope_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.scope_table.verticalHeader().setVisible(False)
+        self.scope_table.setAlternatingRowColors(False)
+        self.scope_table.setShowGrid(False)
+        self.scope_table.setMinimumHeight(180)
+        self.scope_table.horizontalHeader().setStretchLastSection(False)
+        _ssh = self.scope_table.horizontalHeader()
+        _ssh.setSectionResizeMode(0, QHeaderView.Fixed)
+        _ssh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        _ssh.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.scope_table.setColumnWidth(0, 64)
+        self.scope_table.verticalHeader().setDefaultSectionSize(44)
+
+        action_row = QHBoxLayout()
+        action_row.setSpacing(8)
+        self.btn_run = QPushButton()
+        self.btn_run.setObjectName("PrimaryButton")
+        self.btn_run.setMinimumWidth(140)
+        self.btn_stop = QPushButton()
+        self.btn_stop.setObjectName("DangerGhostButton")
+        self.btn_stop.setMinimumWidth(100)
+        self.btn_stop.setEnabled(False)
+        self.btn_clear = QPushButton()
+        self.btn_clear.setObjectName("GhostButton")
+        action_row.addWidget(self.btn_run)
+        action_row.addWidget(self.btn_stop)
+        action_row.addWidget(self.btn_clear)
+        action_row.addStretch(1)
+        self.lbl_status = QLabel()
+        self.lbl_status.setObjectName("StatusLabel")
+        self.lbl_status.setWordWrap(True)
+
+        scope_layout.addWidget(self.scope_title)
+        scope_layout.addLayout(scope_radio_row)
+        scope_layout.addWidget(self.scope_table_hint)
+        scope_layout.addLayout(scope_tool_row)
+        scope_layout.addWidget(self.scope_table)
+        scope_layout.addWidget(make_divider())
+        scope_layout.addLayout(action_row)
+        scope_layout.addWidget(self.lbl_status)
+        root.addWidget(self.scope_card)
+
+        self.results_card = QFrame()
+        self.results_card.setObjectName("PanelCard")
+        results_layout = QVBoxLayout(self.results_card)
+        results_layout.setContentsMargins(18, 18, 18, 18)
+        results_layout.setSpacing(10)
+        self.results_title = QLabel()
+        self.results_title.setObjectName("CardTitle")
+        self.result_table = ResultTable()
+        self.result_table.setMinimumHeight(min(440, COMPONENT_SIZES["result_table_min_height"]))
+        self.result_table.setColumnWidth(6, 250)
+        results_layout.addWidget(self.results_title)
+        results_layout.addWidget(self.result_table)
+        root.addWidget(self.results_card, 1)
 
 
 class SettingsPage(QWidget):

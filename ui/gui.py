@@ -10,8 +10,8 @@ from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
-from PySide6.QtWidgets import QApplication, QFileDialog, QFrame, QGraphicsOpacityEffect, QMainWindow, QMessageBox, QScrollArea, QStackedWidget, \
-    QVBoxLayout, QWidget, QHBoxLayout, QAbstractItemView
+from PySide6.QtWidgets import QApplication, QFileDialog, QFrame, QGraphicsOpacityEffect, QLabel, QMainWindow, QMessageBox, QScrollArea, QStackedWidget, \
+    QVBoxLayout, QWidget, QHBoxLayout, QAbstractItemView, QTableWidgetItem
 
 from src.app.config import (
     DEFAULT_CONFIG,
@@ -46,6 +46,7 @@ from src.services.storage_service import (
 from src.services.model_package_service import remove_model_profile
 from src.storage.config_store import get_active_model_profile, get_effective_model_dir
 from src.services.query_text_service import prepare_text_query
+from src.services.remix_embedding_cache import get_remix_embed_cache_dir
 from src.services.remote_library_service import list_remote_link_details
 from src.services.remote_link_precheck_service import precheck_remote_links
 from src.storage.asset_store import load_model_metadata
@@ -68,7 +69,7 @@ from src.utils import (
 )
 from src.services.version_service import get_local_version_status
 from ui.app_meta_controller import AppMetaController
-from ui.components import LibraryPage, LinkSearchPage, NavigationSidebar, SearchPage, SettingsPage
+from ui.components import LibraryPage, LinkSearchPage, NavigationSidebar, RemixMatchPage, SearchPage, SettingsPage
 from ui.dialogs import AboutDialog, AppMessageDialog, MobileBridgeDialog, NoticeDialog, ResourceTableDialog, SamplingRulesDialog
 from ui.indexing_controller import IndexingController
 from ui.layout import WINDOW_SIZES, apply_window_size
@@ -79,8 +80,15 @@ from ui.preview_controller import PreviewController
 from ui.runtime_resource_controller import RuntimeResourceController
 from ui.search_controller import SearchController
 from ui.styles import DARK_STYLE, LIGHT_STYLE
-from ui.table_views import populate_library_table
-from ui.workers import LocalVectorDetailsWorker, ModelPackageImportWorker
+from ui.remix_compare_dialog import RemixCompareDialog
+from ui.table_views import (
+    build_remix_scope_checkbox_widget,
+    populate_library_table,
+    populate_remix_result_table,
+    populate_result_table,
+    remix_scope_row_checkbox,
+)
+from ui.workers import LocalVectorDetailsWorker, ModelPackageImportWorker, RemixMatchWorker, ThumbLoader
 
 
 class MainWindow(QMainWindow):
@@ -103,6 +111,8 @@ class MainWindow(QMainWindow):
         self._preview_export_tasks = []
         self._local_vector_detail_worker = None
         self._model_package_import_worker = None
+        self.remix_worker = None
+        self._remix_thumb_thread = None
         self._ffmpeg_imported_with_package = False
         self._settings_dirty = False
         self._settings_loading = False
@@ -185,10 +195,12 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         self.search_page = SearchPage()
         self.link_page = LinkSearchPage()
+        self.remix_page = RemixMatchPage()
         self.library_page = LibraryPage()
         self.settings_page = SettingsPage()
         self.pages.addWidget(self._build_scroll_page(self.search_page))
         self.pages.addWidget(self._build_scroll_page(self.link_page))
+        self.pages.addWidget(self._build_scroll_page(self.remix_page))
         self.pages.addWidget(self._build_scroll_page(self.library_page))
         self.pages.addWidget(self.settings_page)
         content_layout.addWidget(self.pages)
@@ -205,6 +217,7 @@ class MainWindow(QMainWindow):
 
         self.sidebar.btn_page_search.clicked.connect(lambda: self.switch_page("search"))
         self.sidebar.btn_page_link.clicked.connect(lambda: self.switch_page("link"))
+        self.sidebar.btn_page_remix.clicked.connect(lambda: self.switch_page("remix"))
         self.sidebar.btn_page_library.clicked.connect(lambda: self.switch_page("library"))
         self.sidebar.btn_page_settings.clicked.connect(lambda: self.switch_page("settings"))
         self.sidebar.btn_theme.clicked.connect(self.toggle_theme)
@@ -228,6 +241,15 @@ class MainWindow(QMainWindow):
         self.link_page.btn_clear.clicked.connect(self.clear_link_search_content)
         self.link_page.btn_link_details.clicked.connect(self.show_network_link_details)
         self.link_page.btn_open_cache.clicked.connect(self.open_network_download_cache_folder)
+
+        self.remix_page.btn_browse_mix.clicked.connect(self._browse_remix_mix_video)
+        self.remix_page.btn_run.clicked.connect(self.start_remix_match)
+        self.remix_page.btn_stop.clicked.connect(self.stop_remix_match)
+        self.remix_page.btn_clear.clicked.connect(self.clear_remix_match_ui)
+        self.remix_page.btn_scope_all.clicked.connect(self._remix_scope_select_all)
+        self.remix_page.btn_scope_none.clicked.connect(self._remix_scope_select_none)
+        self.remix_page.btn_open_remix_cache.clicked.connect(self.open_remix_embed_cache_folder)
+        self.remix_page.scope_table.cellClicked.connect(self._on_remix_scope_table_cell_clicked)
 
         self.library_page.btn_add_lib.clicked.connect(self.select_video_folder)
         self.library_page.btn_sync_db.clicked.connect(self.start_update_index)
@@ -253,7 +275,7 @@ class MainWindow(QMainWindow):
         self.settings_page.btn_cleanup_old_model_dir.clicked.connect(self.cleanup_old_model_dir)
 
         self.setAcceptDrops(True)
-        for page in (self.search_page, self.link_page, self.library_page, self.settings_page):
+        for page in (self.search_page, self.link_page, self.remix_page, self.library_page, self.settings_page):
             page.header.runtime_banner_action.clicked.connect(self.open_runtime_resource_dialog)
 
     def _build_scroll_page(self, page_widget):
@@ -265,9 +287,18 @@ class MainWindow(QMainWindow):
         return scroll
 
     def switch_page(self, page_name):
-        mapping = {"search": 0, "link": 1, "library": 2, "settings": 3}
-        self.pages.setCurrentIndex(mapping[page_name])
+        mapping = {"search": 0, "link": 1, "remix": 2, "library": 3, "settings": 4}
+        prev_idx = self.pages.currentIndex()
+        next_idx = mapping[page_name]
+        self.pages.setCurrentIndex(next_idx)
         self.sidebar.set_current_page(page_name)
+        if prev_idx == mapping["search"] and next_idx != mapping["search"]:
+            self.preview_controller.stop_preview()
+            dlg = getattr(self, "_preview_dialog", None)
+            if dlg is not None:
+                dlg.dismiss_for_page_switch()
+        if page_name == "remix":
+            self._refresh_remix_scope_table()
 
     def _update_version_info(self, version_info):
         self.version_info = version_info
@@ -296,6 +327,7 @@ class MainWindow(QMainWindow):
         self.sidebar.hero_body.setText(t["hero_body"])
         self.sidebar.btn_page_search.setText(t["nav_search"])
         self.sidebar.btn_page_link.setText(t["nav_link"])
+        self.sidebar.btn_page_remix.setText(t["nav_remix"])
         self.sidebar.btn_page_library.setText(t["nav_library"])
         self.sidebar.btn_page_settings.setText(t["nav_settings"])
         self.sidebar.btn_notice.setText(t["notice_short"])
@@ -375,6 +407,42 @@ class MainWindow(QMainWindow):
         self.link_page.results_title.setText(t["link_results_panel"])
         self.link_page.result_table.setHorizontalHeaderLabels(t["network_result_headers"])
 
+        self.remix_page.header.title.setText(t["remix_page_title"])
+        self.remix_page.header.subtitle.setText(t["remix_page_desc"])
+        self.remix_page.mix_label.setText(t["remix_mix_video"])
+        self.remix_page.section_params_title.setText(t.get("remix_section_params", ""))
+        self.remix_page.mix_hint.setText(t["remix_mix_hint"])
+        self.remix_page.btn_browse_mix.setText(t["remix_browse"])
+        self.remix_page.lbl_sample_fps.setText(t["remix_sample_fps"])
+        self.remix_page.lbl_sample_fps.setToolTip(t.get("remix_sample_fps_tip", ""))
+        self.remix_page.input_sample_fps.setToolTip(t.get("remix_sample_fps_tip", ""))
+        self.remix_page.lbl_score.setText(t["remix_score_threshold"])
+        self.remix_page.lbl_score.setToolTip(t.get("remix_score_threshold_tip", ""))
+        self.remix_page.input_score_threshold.setToolTip(t.get("remix_score_threshold_tip", ""))
+        self.remix_page.lbl_gap.setText(t["remix_merge_gap"])
+        self.remix_page.lbl_gap.setToolTip(t.get("remix_merge_gap_tip", ""))
+        self.remix_page.input_merge_gap.setToolTip(t.get("remix_merge_gap_tip", ""))
+        self.remix_page.lbl_min_seg.setText(t["remix_min_segment"])
+        self.remix_page.lbl_min_seg.setToolTip(t.get("remix_min_segment_tip", ""))
+        self.remix_page.input_min_segment.setToolTip(t.get("remix_min_segment_tip", ""))
+        self.remix_page.lbl_remix_cluster.setText(t["remix_cluster_gap"])
+        self.remix_page.lbl_remix_cluster.setToolTip(t.get("remix_cluster_gap_tip", ""))
+        self.remix_page.input_remix_cluster_gap.setToolTip(t.get("remix_cluster_gap_tip", ""))
+        self.remix_page.remix_params_guide.setText(t.get("remix_params_guide", ""))
+        self.remix_page.btn_open_remix_cache.setText(t.get("remix_open_cache_dir", t.get("network_open_cache", "")))
+        self.remix_page.btn_open_remix_cache.setToolTip(t.get("remix_open_cache_dir_tip", ""))
+        self.remix_page.scope_title.setText(t["remix_scope_title"])
+        self.remix_page.radio_scope_all.setText(t["remix_scope_all"])
+        self.remix_page.radio_scope_restricted.setText(t["remix_scope_restricted"])
+        self.remix_page.scope_table_hint.setText(t["remix_scope_table_hint"])
+        self.remix_page.btn_scope_all.setText(t["remix_select_all"])
+        self.remix_page.btn_scope_none.setText(t["remix_select_none"])
+        self.remix_page.btn_run.setText(t["remix_run"])
+        self.remix_page.btn_stop.setText(t["remix_stop"])
+        self.remix_page.btn_clear.setText(t["remix_clear"])
+        self.remix_page.results_title.setText(t["remix_results_title"])
+        self.remix_page.result_table.setHorizontalHeaderLabels(t["remix_result_headers"])
+
         self.library_page.header.title.setText(t["library_page_title"])
         self.library_page.header.subtitle.setText(t["library_page_desc"])
         self.library_page.table_title.setText(t["library_table_title"])
@@ -405,6 +473,7 @@ class MainWindow(QMainWindow):
         self.search_page.lbl_status.setText(t["ready"])
         self.link_page.lbl_build_status.setText(t["ready"])
         self.link_page.lbl_search_status.setText(t["ready"])
+        self.remix_page.lbl_status.setText(t["ready"])
         self.library_page.lbl_status.setText(t["ready"])
         self.settings_page.lbl_status.setText(t["settings_hint"])
         self._bind_sampling_preview_signals()
@@ -1271,6 +1340,11 @@ class MainWindow(QMainWindow):
             self._refresh_global_index_ui()
         except Exception as exc:
             self.show_error_dialog(self.texts["library_load_failed"], exc)
+            return
+        try:
+            self._refresh_remix_scope_table()
+        except Exception:
+            pass
 
     def sync_library(self, path):
         self.start_update_index(target_lib=path, rebuild_global_assets=False)
@@ -1306,6 +1380,192 @@ class MainWindow(QMainWindow):
 
         self.switch_page("search")
         self.search_controller.start_search(query, bool(text_query))
+
+    def _browse_remix_mix_video(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            self.texts["remix_file_dialog_title"],
+            "",
+            self.texts["remix_file_filter"],
+        )
+        if path:
+            self.remix_page.input_mix_path.setText(path)
+
+    def _stop_remix_thumbnail_loading(self):
+        from ui.threading_utils import shutdown_thread
+
+        shutdown_thread(getattr(self, "_remix_thumb_thread", None), stop_first=True)
+        self._remix_thumb_thread = None
+
+    def _refresh_remix_scope_table(self):
+        t = self.texts
+        table = self.remix_page.scope_table
+        table.setHorizontalHeaderLabels([t["remix_scope_col_use"], t["remix_scope_col_name"], t["remix_scope_col_path"]])
+        table.setRowCount(0)
+        try:
+            detail = list_local_vector_details(validate_contents=False)
+        except Exception:
+            return
+        for ent in detail.get("entries", []):
+            if not ent.get("source_exists"):
+                continue
+            if str(ent.get("asset_state", "")).strip().lower() != "ready":
+                continue
+            lib = ent.get("library_path", "")
+            rel = ent.get("video_rel_path", "")
+            full = os.path.normpath(os.path.join(str(lib), str(rel)))
+            row = table.rowCount()
+            table.insertRow(row)
+            wrap, cb = build_remix_scope_checkbox_widget(full, checked=True)
+            cb.setToolTip(t.get("remix_scope_check_tip", ""))
+            table.setCellWidget(row, 0, wrap)
+            name_item = QTableWidgetItem(os.path.basename(full))
+            name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+            name_item.setTextAlignment(Qt.AlignCenter)
+            name_item.setToolTip(full)
+            table.setItem(row, 1, name_item)
+            path_item = QTableWidgetItem(full)
+            path_item.setFlags(path_item.flags() & ~Qt.ItemIsEditable)
+            path_item.setToolTip(full)
+            table.setItem(row, 2, path_item)
+
+    def _on_remix_scope_table_cell_clicked(self, row, column):
+        if column == 0:
+            return
+        cb = remix_scope_row_checkbox(self.remix_page.scope_table, row)
+        if cb is not None:
+            cb.setChecked(not cb.isChecked())
+
+    def _remix_scope_select_all(self):
+        table = self.remix_page.scope_table
+        for r in range(table.rowCount()):
+            cb = remix_scope_row_checkbox(table, r)
+            if cb is not None:
+                cb.setChecked(True)
+
+    def _remix_scope_select_none(self):
+        table = self.remix_page.scope_table
+        for r in range(table.rowCount()):
+            cb = remix_scope_row_checkbox(table, r)
+            if cb is not None:
+                cb.setChecked(False)
+
+    def clear_remix_match_ui(self):
+        from ui.threading_utils import shutdown_thread
+
+        if self.remix_worker is not None:
+            self.remix_worker.stop()
+            shutdown_thread(self.remix_worker)
+            self.remix_worker = None
+        self.remix_page.btn_run.setEnabled(True)
+        self.remix_page.btn_stop.setEnabled(False)
+        self._stop_remix_thumbnail_loading()
+        self.remix_page.result_table.setRowCount(0)
+        self.remix_page.lbl_status.setText(self.texts.get("ready", ""))
+
+    def stop_remix_match(self):
+        if self.remix_worker is not None:
+            self.remix_worker.stop()
+
+    def start_remix_match(self):
+        if not self.check_runtime_resources():
+            self.remix_page.lbl_status.setText(self.texts["model_features_disabled"])
+            return
+        mix = self.remix_page.input_mix_path.text().strip()
+        if not mix or not os.path.isfile(mix):
+            self.remix_page.lbl_status.setText(self.texts["remix_mix_hint"])
+            return
+        scope_paths = None
+        if self.remix_page.radio_scope_restricted.isChecked():
+            paths = []
+            table = self.remix_page.scope_table
+            for r in range(table.rowCount()):
+                cb = remix_scope_row_checkbox(table, r)
+                if cb is not None and cb.isChecked():
+                    p = cb.property("video_path")
+                    if p:
+                        paths.append(str(p))
+            if not paths:
+                self.remix_page.lbl_status.setText(self.texts["remix_scope_table_hint"])
+                return
+            scope_paths = paths
+
+        self._stop_remix_thumbnail_loading()
+        self.remix_page.btn_run.setEnabled(False)
+        self.remix_page.btn_stop.setEnabled(True)
+        self.remix_page.lbl_status.setText(self.texts["remix_progress"])
+        self._remix_match_started_at = time.time()
+
+        self.remix_worker = RemixMatchWorker(
+            mix,
+            scope_paths,
+            self.remix_page.input_sample_fps.value(),
+            self.remix_page.input_score_threshold.value(),
+            self.remix_page.input_merge_gap.value(),
+            self.remix_page.input_min_segment.value(),
+            self.remix_page.input_remix_cluster_gap.value(),
+        )
+        self.remix_worker.result_ready.connect(self._on_remix_match_results)
+        self.remix_worker.error_signal.connect(self._on_remix_match_error)
+        self.remix_worker.stopped_signal.connect(self._on_remix_match_stopped)
+        self.remix_worker.progress_signal.connect(self._on_remix_match_progress)
+        self.remix_worker.finished.connect(self._on_remix_match_finished)
+        self.remix_worker.start()
+
+    def _on_remix_match_progress(self, msg):
+        s = str(msg)
+        if s.startswith("remix_progress_frames:"):
+            self.remix_page.lbl_status.setText(self.texts["remix_progress"])
+        elif s == "remix_progress_cache_hit":
+            self.remix_page.lbl_status.setText(self.texts.get("remix_progress_cache_hit", self.texts["remix_progress"]))
+        elif s == "remix_progress_embed_done":
+            self.remix_page.lbl_status.setText(self.texts.get("remix_progress_embed_done", self.texts["remix_progress"]))
+        else:
+            self.remix_page.lbl_status.setText(self.texts["remix_progress"])
+
+    def _on_remix_match_results(self, results):
+        self._update_inference_backend_hint()
+        if not results:
+            self.remix_page.result_table.setRowCount(0)
+            self.remix_page.lbl_status.setText(self.texts["remix_no_results"])
+            return
+        mix_path = self.remix_page.input_mix_path.text().strip()
+        populate_remix_result_table(
+            self.remix_page.result_table,
+            results,
+            mix_path,
+            self.handle_remix_compare,
+            self.open_result_in_explorer,
+            self.handle_export_clip,
+            self.texts,
+        )
+        elapsed = max(0.0, time.time() - getattr(self, "_remix_match_started_at", time.time()))
+        self.remix_page.lbl_status.setText(self.texts["remix_done"].format(count=len(results), duration=elapsed))
+        thumb_payload = [h.as_search_hit() for h in results]
+        self._remix_thumb_thread = ThumbLoader(thumb_payload)
+        self._remix_thumb_thread.thumb_ready.connect(self._on_remix_thumb_ready)
+        self._remix_thumb_thread.start()
+
+    def _on_remix_thumb_ready(self, row, pixmap):
+        label = QLabel()
+        label.setAlignment(Qt.AlignCenter)
+        label.setPixmap(pixmap)
+        self.remix_page.result_table.setCellWidget(row, 1, label)
+
+    def _on_remix_match_error(self, error_text):
+        self._update_inference_backend_hint()
+        self.remix_page.lbl_status.setText(self.texts["remix_failed"])
+        if str(error_text).strip():
+            self.show_error_dialog(self.texts["remix_failed"], Exception(str(error_text)))
+
+    def _on_remix_match_stopped(self):
+        self._update_inference_backend_hint()
+        self.remix_page.lbl_status.setText(self.texts["remix_stopped"])
+
+    def _on_remix_match_finished(self):
+        self.remix_page.btn_run.setEnabled(True)
+        self.remix_page.btn_stop.setEnabled(False)
+        self.remix_worker = None
 
     def toggle_mobile_bridge(self):
         try:
@@ -1884,6 +2144,34 @@ class MainWindow(QMainWindow):
             self.search_page.lbl_status.setText(self.texts["preview_failed"])
         self._update_expand_preview_button()
 
+    def handle_remix_compare(self, remix_path, remix_start_sec, remix_end_sec, source_path, source_start_sec, source_end_sec):
+        if not self.check_runtime_resources():
+            self.remix_page.lbl_status.setText(self.texts["model_features_disabled"])
+            return
+        rp = str(remix_path or "").strip()
+        if not rp or not os.path.isfile(rp):
+            self.remix_page.lbl_status.setText(
+                self.texts.get("remix_compare_no_mix", "Remix video path is invalid. Pick the file again.")
+            )
+            return
+        sp = str(source_path or "").strip()
+        if not sp or not os.path.isfile(sp):
+            self.remix_page.lbl_status.setText(
+                self.texts.get("remix_compare_no_source", "Source video file not found.")
+            )
+            return
+        dlg = RemixCompareDialog(
+            self,
+            rp,
+            float(remix_start_sec),
+            float(remix_end_sec),
+            sp,
+            float(source_start_sec),
+            float(source_end_sec),
+            self.texts,
+        )
+        dlg.exec()
+
     def open_current_preview_dialog(self, _event=None):
         if not self.check_runtime_resources():
             self.search_page.lbl_status.setText(self.texts["model_features_disabled"])
@@ -2327,6 +2615,11 @@ class MainWindow(QMainWindow):
             self._preview_dialog.shutdown_player(fast=True)
         self.search_controller.shutdown()
         self.network_search_controller.shutdown()
+        from ui.threading_utils import shutdown_thread
+
+        shutdown_thread(getattr(self, "remix_worker", None))
+        self.remix_worker = None
+        self._stop_remix_thumbnail_loading()
         self.mobile_bridge_controller.shutdown()
         self.indexing_controller.shutdown()
         self.app_meta_controller.shutdown()
@@ -3183,6 +3476,9 @@ class MainWindow(QMainWindow):
             return
         QApplication.clipboard().setText(link)
         dialog.status_hint.setText(self.texts["details_copy_done"])
+
+    def open_remix_embed_cache_folder(self):
+        open_folder_in_explorer(get_remix_embed_cache_dir(load_config()))
 
     def open_network_download_cache_folder(self):
         storage_paths = get_data_storage_paths()

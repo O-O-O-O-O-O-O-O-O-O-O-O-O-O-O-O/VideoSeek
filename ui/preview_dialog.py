@@ -217,6 +217,15 @@ class PreviewDialog(QDialog):
         self._close_after_export = False
         self._dispose_player(fast=fast)
 
+    def dismiss_for_page_switch(self):
+        """Fully stop playback and hide when leaving search while this dialog is open."""
+        if self.export_worker is not None and self.export_worker.isRunning():
+            return
+        if not self.isVisible():
+            return
+        self._begin_close()
+        self._finalize_close()
+
     def cancel_export_and_wait(self, timeout_ms=3000):
         return True
 
