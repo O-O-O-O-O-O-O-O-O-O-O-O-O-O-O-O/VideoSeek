@@ -50,6 +50,7 @@ If `vlc_lib/` is missing or incomplete, search/indexing may still work but previ
 - Search local video libraries with text or image.
 - Build and search a remote library from online links.
 - Preview matched clips inside the app.
+- **Remix source match:** align a mix-cut video to indexed originals (see `docs/remix_source_match.md`).
 
 ## Tests
 
@@ -69,6 +70,7 @@ Full suite: `python -m unittest discover -s tests -p "test_*.py"` (see `docs/qui
 
 - Detailed setup and troubleshooting: `docs/quickstart.md`
 - Architecture and module map: `docs/architecture.md`
+- Remix / mix-cut source match: `docs/remix_source_match.md`
 
 ## License
 

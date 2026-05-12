@@ -32,7 +32,7 @@ flowchart TB
   end
 
   subgraph domain ["Domain (src/domain)"]
-    DTO["SearchHit, RemoteSearchHit"]
+    DTO["SearchHit, RemoteSearchHit, RemixSearchHit"]
   end
 
   subgraph core ["Core (src/core)"]
@@ -90,6 +90,7 @@ Small shared types used across services and UI:
 
 - **`SearchHit`**: one local frame/chunk search match (`start_sec`, `end_sec`, `score`, `video_path`). Built in `search_service`; tables and thumbnail loaders accept **`SearchHit` or legacy 4-tuples** via `coerce_search_hit`.
 - **`RemoteSearchHit`**: one remote (network) vector search match (`title`, `time_sec`, `score`, `source_link`). Built in `remote_search_service`; `populate_network_result_table` accepts **`RemoteSearchHit` or legacy dicts** via `coerce_remote_search_hit`.
+- **`RemixSearchHit`**: one remix-to-source segment (`start_sec`/`end_sec` on source, `remix_start_sec`/`remix_end_sec` on remix, `score`, `video_path`). Built by `remix_match_service` / `remix_match_aggregate`; `populate_remix_result_table` accepts **`RemixSearchHit` or `SearchHit`** via `coerce_remix_search_hit`.
 
 Re-export for convenience: `from src.core.core import run_search, SearchHit, RemoteSearchHit`.
 
@@ -124,7 +125,13 @@ New code should prefer these getters; remaining legacy reads can be migrated gra
 2. `remote_link_precheck_service` summarizes link risk before heavy work; `remote_library_service` runs staged build: `resolve/download -> extract -> embed -> merge -> index`.
 3. Built vectors and FAISS artifacts are written under the configured remote asset paths (`asset_store`, `config_store` helpers). Separately, when `remote_index_manifest_url` is set, `remote_index_service` can download a **packaged** remote index from the network; `remote_search_service` performs query-time vector search against the active remote index state.
 
-## Project Map
+### Remix source match
+
+1. User selects a remix file, match parameters, and optional **library scope** (entire index vs checked videos) on the Remix page (`RemixMatchPage` in `ui/components.py`).
+2. `RemixMatchWorker` (`ui/workers.py`) calls `run_remix_match` in `remix_match_service.py`: load or compute remix-frame CLIP vectors (disk cache in `remix_embedding_cache.py`), query FAISS against scoped library vectors, then aggregate raw hits into segments in `remix_match_aggregate.py`.
+3. UI renders `RemixSearchHit` rows via `populate_remix_result_table` (`ui/table_views.py`); **Compare** opens `RemixCompareDialog` for side-by-side VLC preview.
+
+End-user and cache-path details: **`docs/remix_source_match.md`**.
 
 High-level layout (Python modules). Generated paths mirror the repository; prefer this section over memorizing filenames.
 
@@ -134,6 +141,7 @@ src/
   domain/
     __init__.py
     remote_search_hit.py
+    remix_search_hit.py
     search_hit.py
   app/
     __init__.py
@@ -167,6 +175,9 @@ src/
     remote_library_service.py
     remote_link_precheck_service.py
     remote_search_service.py
+    remix_embedding_cache.py
+    remix_match_aggregate.py
+    remix_match_service.py
     runtime_resource_service.py
     search_service.py
     storage_service.py
@@ -196,6 +207,7 @@ ui/
   preview_controller.py
   preview_dialog.py
   runtime_resource_controller.py
+  remix_compare_dialog.py
   search_controller.py
   styles.py
   table_views.py
@@ -225,6 +237,7 @@ tests/
   test_network_presenters.py
   test_notice_version_utils.py
   test_query_text_service.py
+  test_remix_embedding_cache.py
   test_runtime_resource_service.py
   test_semantic_chunking.py
   test_services.py

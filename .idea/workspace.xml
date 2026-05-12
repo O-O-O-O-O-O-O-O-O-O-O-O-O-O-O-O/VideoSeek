@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="9b1fded6-c71f-46c4-9f35-b98f0ce740c1" name="更改" comment="补充说明">
+    <list default="true" id="9b1fded6-c71f-46c4-9f35-b98f0ce740c1" name="更改" comment="加视频溯源功能beta">
       <change afterPath="$PROJECT_DIR$/docs/static_call_analysis.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/libvlc.dll" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/libvlccore.dll" afterDir="false" />
@@ -373,19 +373,11 @@
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/visualization/libgoom_plugin.dll" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/visualization/libprojectm_plugin.dll" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/visualization/libvisual_plugin.dll" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/VideoSeek.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/VideoSeek.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/app/i18n.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/i18n.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/extract_frames.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/extract_frames.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/domain/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/domain/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.zh-CN.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.zh-CN.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/architecture.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/architecture.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/quickstart.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/quickstart.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/static/favicon.ico" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/components.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/components.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/gui.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/gui.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/preview_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/preview_dialog.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/styles.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/styles.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/table_views.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/table_views.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/vlc_player.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/vlc_player.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/workers.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/workers.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -711,15 +703,7 @@
       <workItem from="1778421954428" duration="7436000" />
       <workItem from="1778473389444" duration="4215000" />
       <workItem from="1778487462515" duration="1521000" />
-      <workItem from="1778588740744" duration="10622000" />
-    </task>
-    <task id="LOCAL-00023" summary="本地向量更新逻辑优化，视频定位优化">
-      <option name="closed" value="true" />
-      <created>1774266333816</created>
-      <option name="number" value="00023" />
-      <option name="presentableId" value="LOCAL-00023" />
-      <option name="project" value="LOCAL" />
-      <updated>1774266333816</updated>
+      <workItem from="1778588740744" duration="11057000" />
     </task>
     <task id="LOCAL-00024" summary="1.0.2更新，ui、多库查询">
       <option name="closed" value="true" />
@@ -1105,7 +1089,15 @@
       <option name="project" value="LOCAL" />
       <updated>1778348051809</updated>
     </task>
-    <option name="localTasksCounter" value="72" />
+    <task id="LOCAL-00072" summary="加视频溯源功能beta">
+      <option name="closed" value="true" />
+      <created>1778600968766</created>
+      <option name="number" value="00072" />
+      <option name="presentableId" value="LOCAL-00072" />
+      <option name="project" value="LOCAL" />
+      <updated>1778600968766</updated>
+    </task>
+    <option name="localTasksCounter" value="73" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -1135,7 +1127,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="删除无用函数" />
     <MESSAGE value="修改nuitka打包路径问题" />
     <MESSAGE value="readme修改" />
     <MESSAGE value="更新功能实现" />
@@ -1160,7 +1151,8 @@
     <MESSAGE value="代码解耦" />
     <MESSAGE value="init补" />
     <MESSAGE value="补充说明" />
-    <option name="LAST_COMMIT_MESSAGE" value="补充说明" />
+    <MESSAGE value="加视频溯源功能beta" />
+    <option name="LAST_COMMIT_MESSAGE" value="加视频溯源功能beta" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
