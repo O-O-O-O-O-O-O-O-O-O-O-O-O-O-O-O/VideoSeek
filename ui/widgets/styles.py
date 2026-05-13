@@ -28,6 +28,48 @@ QWidget {
     margin-top: 2px;
     margin-bottom: 2px;
 }
+#RemixMixPathRow {
+    background: __FIELD__;
+    border: 1px solid __LINE__;
+    border-radius: 12px;
+}
+#RemixMixPathEdit {
+    border: none;
+    background: transparent;
+    border-top-left-radius: 11px;
+    border-bottom-left-radius: 11px;
+    padding: 10px 12px;
+    min-height: 40px;
+    color: __HEADLINE__;
+    font-size: 13px;
+    font-weight: 500;
+    selection-background-color: __ACCENT__;
+    selection-color: #ffffff;
+}
+#RemixMixPathEdit:focus {
+    background: __ACCENT_SOFT__;
+    border: none;
+    outline: none;
+}
+#RemixMixBrowseBtn {
+    border: none;
+    border-left: 1px solid __LINE__;
+    border-top-right-radius: 11px;
+    border-bottom-right-radius: 11px;
+    background: transparent;
+    color: __ACCENT__;
+    font-weight: 700;
+    font-size: 13px;
+    padding: 0 16px;
+    min-width: 108px;
+    min-height: 40px;
+}
+#RemixMixBrowseBtn:hover {
+    background: __ACCENT_SOFT__;
+}
+#RemixMixBrowseBtn:pressed {
+    background: __TRACK__;
+}
 #NoticeCard {
     background: __NOTICE_BG__;
     border: 1px solid __NOTICE_LINE__;
@@ -41,6 +83,16 @@ QWidget {
     color: __WARN__;
     font-size: 12px;
     font-weight: 700;
+}
+#RemixScopeHint {
+    color: __ACCENT__;
+    background: __ACCENT_SOFT__;
+    border: 1px solid __ACCENT__;
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.45em;
 }
 #NoticeTitle {
     color: __NOTICE_TEXT__;
@@ -319,6 +371,12 @@ QPushButton:disabled {
     background: __DANGER_SOFT__;
     border-color: __DANGER__;
 }
+#DangerGhostButton:disabled {
+    background: transparent;
+    border-color: __LINE__;
+    color: __MUTED__;
+    font-weight: 600;
+}
 #ToolbarDivider {
     color: __LINE__;
     background: __LINE__;
@@ -465,11 +523,185 @@ QSpinBox[settingField="true"]::up-button, QDoubleSpinBox[settingField="true"]::u
     border: 1px solid __LINE__;
     border-radius: 16px;
 }
-#LibTable, #ResultTable {
+#ResultTable {
     background: __FIELD__;
     border: 1px solid __LINE__;
     border-radius: 14px;
     gridline-color: __LINE__;
+    outline: none;
+}
+#ResultTable::item {
+    border-left: none;
+    border-right: none;
+    border-top: none;
+    border-bottom: 1px solid __LINE__;
+    padding: 8px 8px;
+}
+#ResultTable::item:hover {
+    background: __ACCENT_SOFT__;
+}
+#ResultTable::item:selected {
+    background: __TRACK__;
+    color: __HEADLINE__;
+    border-bottom: 1px solid __LINE__;
+}
+#ResultTable::item:selected:active {
+    background: __ACCENT_SOFT__;
+}
+#ResultTable QHeaderView::section {
+    background: __PANEL__;
+    border: none;
+    border-bottom: 2px solid __LINE_STRONG__;
+    border-right: 1px solid __LINE__;
+    padding: 9px 10px;
+    color: __MUTED__;
+    font-weight: 700;
+}
+#LibraryListScroll {
+    background: transparent;
+    border: none;
+}
+#LibraryListHost {
+    background: transparent;
+}
+#LibraryListColumnHeader {
+    background: transparent;
+    border: none;
+}
+#LibraryListHeaderCell {
+    color: __MUTED__;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+#LibraryCard {
+    background: __FIELD__;
+    border: 1px solid __LINE__;
+    border-radius: 14px;
+}
+#LibraryCard:hover {
+    background: __ACCENT_SOFT__;
+    border-color: __LINE_STRONG__;
+}
+#LibraryCardIndex {
+    color: __HEADLINE__;
+    font-size: 14px;
+    font-weight: 800;
+    background: __PANEL__;
+    border: 1px solid __LINE__;
+    border-radius: 20px;
+    min-width: 40px;
+    max-width: 40px;
+    min-height: 40px;
+    max-height: 40px;
+}
+#LibraryCardTitle {
+    color: __HEADLINE__;
+    font-size: 15px;
+    font-weight: 700;
+}
+#LibraryCardSubpath {
+    color: __MUTED__;
+    font-size: 12px;
+    font-weight: 500;
+}
+#LibraryEmptyHint {
+    color: __MUTED__;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 28px 16px;
+}
+#RemixScopeScroll {
+    background: transparent;
+    border: none;
+}
+#RemixScopeList {
+    background: transparent;
+}
+#RemixScopeLibCard {
+    background: __FIELD__;
+    border: 1px solid __LINE__;
+    border-radius: 14px;
+}
+#RemixScopeLibTitle {
+    color: __HEADLINE__;
+    font-size: 14px;
+    font-weight: 700;
+}
+#RemixScopeVideoRow {
+    background: __FIELD__;
+    border: 1px solid __LINE__;
+    border-radius: 10px;
+}
+#RemixScopeVideoName {
+    color: __HEADLINE__;
+    font-size: 13px;
+    font-weight: 600;
+}
+#RemixScopePathHint {
+    color: __MUTED__;
+    font-size: 12px;
+    font-weight: 500;
+}
+#RemixScopeCollapseBtn {
+    background: transparent;
+    border: none;
+    padding: 4px;
+}
+#RemixDisclosureHeader {
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+}
+#RemixDisclosureHeader:hover {
+    background: __ACCENT_SOFT__;
+}
+#RemixDisclosureChevron {
+    color: __MUTED__;
+    font-size: 14px;
+    font-weight: 700;
+    background: transparent;
+    min-height: 22px;
+}
+#RemixScopeLibTree {
+    outline: none;
+    border: 1px solid __LINE__;
+    border-radius: 12px;
+    padding: 4px 2px 8px 2px;
+    background: __PANEL__;
+}
+#RemixScopeLibTree QHeaderView::section {
+    background: __PANEL__;
+    border: none;
+    border-bottom: 2px solid __LINE_STRONG__;
+    padding: 8px 10px;
+    color: __MUTED__;
+    font-weight: 700;
+    font-size: 12px;
+}
+#RemixScopeLibTree::item {
+    min-height: 30px;
+    padding: 8px 10px;
+    border: none;
+    border-bottom: 1px solid __LINE__;
+    border-radius: 0;
+    margin: 0 2px;
+    font-size: 13px;
+}
+#RemixScopeLibTree::item:hover {
+    background: __ACCENT_SOFT__;
+}
+#RemixScopeLibTree::item:selected {
+    background: __TRACK__;
+    color: __HEADLINE__;
+    border-bottom: 1px solid __LINE__;
+}
+#RemixScopeLibTree::item:selected:active {
+    background: __ACCENT_SOFT__;
+    border-bottom: 1px solid __LINE__;
+}
+#RemixScopeLibBody {
+    background: transparent;
 }
 QHeaderView::section {
     background: transparent;

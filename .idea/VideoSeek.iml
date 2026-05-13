@@ -9,6 +9,7 @@
       <excludeFolder url="file://$MODULE_DIR$/dist" />
       <excludeFolder url="file://$MODULE_DIR$/vlc_lib" />
       <excludeFolder url="file://$MODULE_DIR$/face_model" />
+      <excludeFolder url="file://$MODULE_DIR$/docs/ai" />
     </content>
     <orderEntry type="jdk" jdkName="VideoSeek" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

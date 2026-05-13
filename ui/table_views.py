@@ -1,16 +1,14 @@
 import os
 import webbrowser
 
-from PySide6.QtCore import QEvent, Qt, QRect
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
-    QPushButton,
-    QSizePolicy,
     QHeaderView,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -22,173 +20,52 @@ from src.domain.remix_search_hit import coerce_remix_search_hit
 from src.domain.search_hit import coerce_search_hit
 
 
-_SCOPE_CB_LIGHT = {
-    "field": QColor("#f7f9fd"),
-    "track": QColor("#dbe3ef"),
-    "line": QColor("#afbed8"),
-    "accent": QColor("#2f6df6"),
-    "accent_hover": QColor("#4a82fb"),
-}
-_SCOPE_CB_DARK = {
-    "field": QColor("#0f1a2b"),
-    "track": QColor("#22314a"),
-    "line": QColor("#40557f"),
-    "accent": QColor("#4e8cff"),
-    "accent_hover": QColor("#6ba0ff"),
-}
-
-
-def _remix_scope_cb_theme() -> dict:
-    app = QApplication.instance()
-    if app is not None and app.property("videoseek_is_dark"):
-        return _SCOPE_CB_DARK
-    return _SCOPE_CB_LIGHT
-
-
-class RemixScopeCheckBox(QCheckBox):
-    """Self-drawn box + tick (global QSS cannot rely on data: URLs for indicators on Windows)."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("RemixScopeCheck")
-        self.setMouseTracking(True)
-        self.setFixedSize(24, 24)
-        self.stateChanged.connect(lambda _s: self.update())
-
-    def changeEvent(self, event):
-        if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
-            self.update()
-        tc = getattr(QEvent.Type, "ThemeChange", None)
-        if tc is not None and event.type() == tc:
-            self.update()
-        super().changeEvent(event)
-
-    def enterEvent(self, event):
-        self.update()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self.update()
-        super().leaveEvent(event)
-
-    def paintEvent(self, event):
-        with QPainter(self) as painter:
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            theme = _remix_scope_cb_theme()
-            w, h = self.width(), self.height()
-            side = min(w, h, 26)
-            x = (w - side) // 2
-            y = (h - side) // 2
-            rect = QRect(x, y, side, side)
-            radius = max(5, int(side * 0.28))
-            hover = self.underMouse()
-            checked = self.isChecked()
-
-            if checked:
-                fill = theme["accent_hover"] if hover else theme["accent"]
-                border = theme["accent_hover"]
-            else:
-                fill = theme["track"] if hover else theme["field"]
-                border = theme["accent"] if hover else theme["line"]
-
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(fill)
-            painter.drawRoundedRect(rect, radius, radius)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QPen(border, 1))
-            painter.drawRoundedRect(rect.adjusted(0, 0, -1, -1), radius, radius)
-
-            if checked:
-                pen = QPen(
-                    QColor("#ffffff"),
-                    max(1.8, side / 9.0),
-                    s=Qt.PenStyle.SolidLine,
-                    c=Qt.PenCapStyle.RoundCap,
-                    j=Qt.PenJoinStyle.RoundJoin,
-                )
-                painter.setPen(pen)
-                ix, iy, sw, sh = rect.x(), rect.y(), rect.width(), rect.height()
-                x1, y1 = ix + sw * 0.26, iy + sh * 0.52
-                x2, y2 = ix + sw * 0.42, iy + sh * 0.72
-                x3, y3 = ix + sw * 0.76, iy + sh * 0.30
-                painter.drawLine(round(x1), round(y1), round(x2), round(y2))
-                painter.drawLine(round(x2), round(y2), round(x3), round(y3))
-
-            if self.hasFocus():
-                painter.setPen(
-                    QPen(theme["accent"], 1.5, s=Qt.PenStyle.DashLine)
-                )
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawRoundedRect(self.rect().adjusted(1, 1, -2, -2), 6, 6)
-
-
-def remix_scope_row_checkbox(table: QTableWidget, row: int) -> QCheckBox | None:
-    """Resolve QCheckBox for remix scope table column 0 (may be wrapped for layout)."""
-    w = table.cellWidget(row, 0)
-    if isinstance(w, QCheckBox):
-        return w
-    if w is not None:
-        found = w.findChildren(QCheckBox)
-        if found:
-            return found[0]
-    return None
-
-
-def build_remix_scope_checkbox_widget(video_path: str, *, checked: bool = True) -> tuple[QWidget, QCheckBox]:
-    """Centered checkbox cell for remix scope table; returns (wrapper, checkbox)."""
-    cb = RemixScopeCheckBox()
-    cb.setProperty("video_path", video_path)
-    cb.setChecked(checked)
-    cb.setAccessibleName(os.path.basename(video_path) or video_path)
-    cb.setCursor(Qt.PointingHandCursor)
-    cb.setFocusPolicy(Qt.StrongFocus)
-    cb.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-    wrap = QWidget()
-    wrap.setFocusPolicy(Qt.NoFocus)
-    outer = QVBoxLayout(wrap)
-    outer.setContentsMargins(0, 0, 0, 0)
-    outer.setSpacing(0)
-    outer.addStretch(1)
-    mid = QHBoxLayout()
-    mid.setContentsMargins(0, 0, 0, 0)
-    mid.setSpacing(0)
-    mid.addStretch(1)
-    mid.addWidget(cb, 0, Qt.AlignCenter)
-    mid.addStretch(1)
-    outer.addLayout(mid)
-    outer.addStretch(1)
-    return wrap, cb
-
-
 def _fallback_text(texts, key, zh_text, en_text):
     if key in texts:
         return texts[key]
     return en_text if str(texts.get("delete", "")).lower() == "delete" else zh_text
 
 
-def populate_library_table(table, libraries, is_indexing, on_sync, on_remove, on_open, texts):
-    table.setRowCount(0)
-    table.setHorizontalHeaderLabels(texts["library_headers"])
+def populate_library_table(library_list_host, libraries, is_indexing, on_sync, on_remove, on_open, texts):
+    layout = library_list_host.layout()
+    if layout is None:
+        return
+
+    header_labels = getattr(library_list_host, "_column_headers", None)
+    hdr_texts = texts.get("library_headers") or ["#", "Path", "State", "Actions"]
+    if header_labels:
+        for i, lab in enumerate(header_labels):
+            lab.setText(hdr_texts[i] if i < len(hdr_texts) else "")
+
+    while layout.count():
+        item = layout.takeAt(0)
+        w = item.widget()
+        if w is not None:
+            w.deleteLater()
+
+    if not libraries:
+        empty = QLabel(texts.get("library_list_empty", "No library folders yet."))
+        empty.setObjectName("LibraryEmptyHint")
+        empty.setAlignment(Qt.AlignCenter)
+        empty.setWordWrap(True)
+        layout.addWidget(empty)
+        layout.addStretch(1)
+        return
 
     for index, (path, data) in enumerate(libraries.items(), start=1):
-        row = table.rowCount()
-        table.insertRow(row)
-
-        order_item = QTableWidgetItem(str(index))
-        order_item.setTextAlignment(Qt.AlignCenter)
-        table.setItem(row, 0, order_item)
-
-        name_item = QTableWidgetItem(path)
-        name_item.setTextAlignment(Qt.AlignCenter)
-        name_item.setToolTip(path)
-        table.setItem(row, 1, name_item)
-
-        status_item = QTableWidgetItem(_library_status_text(path, data, texts))
-        status_item.setForeground(QColor(_library_status_color(path, data)))
-        status_item.setTextAlignment(Qt.AlignCenter)
-        table.setItem(row, 2, status_item)
-
-        table.setCellWidget(row, 3, _build_library_actions(path, is_indexing, on_sync, on_remove, on_open, texts))
+        layout.addWidget(
+            _build_library_row_card(
+                index,
+                path,
+                data,
+                is_indexing,
+                on_sync,
+                on_remove,
+                on_open,
+                texts,
+            )
+        )
+    layout.addStretch(1)
 
 
 def populate_result_table(table, results, on_preview, on_locate, on_export, texts):
@@ -435,6 +312,62 @@ def populate_network_result_table(table, results, texts):
     table.setUpdatesEnabled(True)
 
 
+def _build_library_row_card(index, path, data, is_indexing, on_sync, on_remove, on_open, texts):
+    card = QFrame()
+    card.setObjectName("LibraryCard")
+    root = QHBoxLayout(card)
+    root.setContentsMargins(16, 14, 16, 14)
+    root.setSpacing(14)
+
+    idx = QLabel(str(index))
+    idx.setObjectName("LibraryCardIndex")
+    idx.setAlignment(Qt.AlignCenter)
+    idx.setFixedSize(40, 40)
+    idx.setMinimumHeight(40)
+
+    path_wrap = QWidget()
+    path_col = QVBoxLayout(path_wrap)
+    path_col.setContentsMargins(0, 0, 0, 0)
+    path_col.setSpacing(4)
+    norm = os.path.normpath(path)
+    base = os.path.basename(norm.rstrip(os.sep)) or norm
+    parent_dir = os.path.dirname(norm)
+    title = QLabel(base)
+    title.setObjectName("LibraryCardTitle")
+    title.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+    title.setWordWrap(True)
+    path_col.addWidget(title)
+    if parent_dir:
+        sub = QLabel(norm)
+        sub.setObjectName("LibraryCardSubpath")
+        sub.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        sub.setWordWrap(True)
+        sub.setToolTip(norm)
+        path_col.addWidget(sub)
+
+    status_text = _library_status_text(path, data, texts)
+    status_color = _library_status_color(path, data)
+    status = QLabel(status_text)
+    status.setObjectName("LibraryCardStatus")
+    status.setAlignment(Qt.AlignCenter)
+    status.setWordWrap(True)
+    status.setMinimumWidth(88)
+    status.setMaximumWidth(118)
+    status.setStyleSheet(
+        f"color: {status_color}; border: 1px solid {status_color}; border-radius: 10px; "
+        f"padding: 6px 10px; font-weight: 700; background: transparent;"
+    )
+
+    actions = _build_library_actions(path, is_indexing, on_sync, on_remove, on_open, texts)
+    actions.setMinimumWidth(196)
+
+    root.addWidget(idx, 0, Qt.AlignVCenter)
+    root.addWidget(path_wrap, 1)
+    root.addWidget(status, 0, Qt.AlignVCenter)
+    root.addWidget(actions, 0, Qt.AlignVCenter)
+    return card
+
+
 def _library_status_text(path, data, texts):
     exists = os.path.exists(path)
     has_index = len(data.get("files", {})) > 0
@@ -464,7 +397,7 @@ def _library_status_color(path, data):
 def _build_library_actions(path, is_indexing, on_sync, on_remove, on_open, texts):
     container = QWidget()
     layout = QHBoxLayout(container)
-    layout.setContentsMargins(8, 0, 8, 0)
+    layout.setContentsMargins(4, 2, 4, 2)
     layout.setSpacing(10)
     layout.setAlignment(Qt.AlignCenter)
 
@@ -555,7 +488,12 @@ def _build_remix_result_actions(
     compare_button.setFixedSize(58, 30)
     compare_button.setCursor(Qt.PointingHandCursor)
     compare_button.setToolTip(
-        _fallback_text(texts, "remix_compare_tip", "并排对比混剪片段与对应原片", "Side-by-side remix vs source clip")
+        _fallback_text(
+            texts,
+            "remix_compare_tip",
+            "并排对比：混剪与原片各自播放本行匹配时长（不再截到较短的一边）",
+            "Side-by-side: remix and source each play their full matched span",
+        )
     )
     compare_button.clicked.connect(
         lambda _,

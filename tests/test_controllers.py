@@ -622,8 +622,33 @@ class VlcPreviewPlayerTests(unittest.TestCase):
             mock_player.set_nsobject.assert_called_once_with(0)
         else:
             mock_player.set_xwindow.assert_called_once_with(0)
+        mock_player.pause.assert_called_once()
+        mock_player.stop.assert_called_once()
         mock_player.release.assert_called_once()
         mock_instance.release.assert_called_once()
+        self.assertIsNone(player._player)
+        self.assertIsNone(player._instance)
+        self.assertTrue(player._released)
+
+    def test_shutdown_with_shared_instance_does_not_release_instance(self):
+        host = MagicMock()
+        host.winId.return_value = 123
+        shared = MagicMock()
+        shared.media_player_new.return_value = MagicMock()
+        player = VlcPreviewPlayer(host, shared_instance=shared)
+        mock_player = player._player
+        player.shutdown()
+
+        if sys.platform == "win32":
+            mock_player.set_hwnd.assert_called_once_with(0)
+        elif sys.platform == "darwin":
+            mock_player.set_nsobject.assert_called_once_with(0)
+        else:
+            mock_player.set_xwindow.assert_called_once_with(0)
+        mock_player.pause.assert_called_once()
+        mock_player.stop.assert_called_once()
+        mock_player.release.assert_called_once()
+        shared.release.assert_not_called()
         self.assertIsNone(player._player)
         self.assertIsNone(player._instance)
         self.assertTrue(player._released)

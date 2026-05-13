@@ -29,14 +29,30 @@ def _prepare_vlc_runtime():
     return vlc, vlc_dir
 
 
+def _vlc_embed_instance_args():
+    args = ["--quiet", "--no-video-title-show"]
+    if sys.platform.startswith("linux"):
+        args.append("--no-xlib")
+    return args
+
+
+def create_vlc_preview_instance():
+    """One libvlc Instance for multiple MediaPlayers (e.g. remix compare). Returns None if VLC is unavailable."""
+    vlc_module, _ = _prepare_vlc_runtime()
+    if vlc_module is None:
+        return None
+    try:
+        return vlc_module.Instance(_vlc_embed_instance_args())
+    except Exception:
+        return None
+
+
 def warmup_vlc_runtime():
     vlc_module, _vlc_dir = _prepare_vlc_runtime()
     if vlc_module is None:
         return False
 
-    args = ["--quiet", "--no-video-title-show"]
-    if sys.platform.startswith("linux"):
-        args.append("--no-xlib")
+    args = _vlc_embed_instance_args()
 
     instance = None
     player = None
@@ -60,7 +76,7 @@ def warmup_vlc_runtime():
 
 
 class VlcPreviewPlayer:
-    def __init__(self, host_widget):
+    def __init__(self, host_widget, *, shared_instance=None):
         self.host_widget = host_widget
         self.host_widget.setAttribute(Qt.WA_NativeWindow, True)
         self._timer = QTimer(self.host_widget)
@@ -69,12 +85,20 @@ class VlcPreviewPlayer:
         self._stop_at_ms = -1
         self._locked_stop_at_ms = -1
         self._user_unlocked = False
+        self._owns_instance = shared_instance is None
         self._instance = None
         self._player = None
         self._released = False
         self._current_video_path = ""
         self._pending_seek_ms = None
-        self._initialize()
+        if shared_instance is not None:
+            self._instance = shared_instance
+            try:
+                self._player = self._instance.media_player_new()
+            except Exception:
+                self._player = None
+        else:
+            self._initialize()
 
     def is_available(self):
         return self._player is not None and not self._released
@@ -139,6 +163,10 @@ class VlcPreviewPlayer:
         if self._player is not None:
             self._detach_output_window()
             try:
+                self._player.pause()
+            except Exception:
+                pass
+            try:
                 self._player.stop()
             except Exception:
                 pass
@@ -157,21 +185,19 @@ class VlcPreviewPlayer:
             except Exception:
                 pass
             self._player = None
-        if self._instance is not None:
+        if self._owns_instance and self._instance is not None:
             try:
                 self._instance.release()
             except Exception:
                 pass
-            self._instance = None
+        self._instance = None
 
     def _initialize(self):
         vlc_module, vlc_dir = _prepare_vlc_runtime()
         if vlc_module is None:
             return
 
-        args = ["--quiet", "--no-video-title-show"]
-        if sys.platform.startswith("linux"):
-            args.append("--no-xlib")
+        args = _vlc_embed_instance_args()
 
         try:
             self._instance = vlc_module.Instance(args)

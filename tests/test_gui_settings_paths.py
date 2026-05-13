@@ -18,6 +18,11 @@ def _build_stub_modules():
 
     class _Qt:
         WA_NativeWindow = 0
+        WA_TransparentForMouseEvents = 0
+        ScrollBarAlwaysOff = 0
+        AlignCenter = 0
+        KeepAspectRatio = 0
+        SmoothTransformation = 0
 
     class _QTimer:
         @staticmethod
@@ -37,9 +42,69 @@ def _build_stub_modules():
         def clipboard():
             return MagicMock()
 
+    class _QEasingCurve:
+        InOutQuad = 0
+
+    class _QPropertyAnimation:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def setDuration(self, *_a, **_k):
+            return None
+
+        def setStartValue(self, *_a, **_k):
+            return None
+
+        def setEndValue(self, *_a, **_k):
+            return None
+
+        def setEasingCurve(self, *_a, **_k):
+            return None
+
+        def start(self, *_a, **_k):
+            return None
+
+    class _QObject:
+        def __init__(self, parent=None):
+            pass
+
+    class _QThread(_QObject):
+        def start(self, *_a, **_k):
+            return None
+
+        def isRunning(self):
+            return False
+
+        def run(self):
+            return None
+
+        def quit(self):
+            return None
+
+        def wait(self, *_a, **_k):
+            return True
+
+    class _QUrl:
+        def __init__(self, *_a, **_k):
+            pass
+
+    def _make_signal(*_types):
+        sig = MagicMock()
+        sig.connect = MagicMock()
+        sig.emit = MagicMock()
+        return sig
+
     qtcore.Qt = _Qt
     qtcore.QTimer = _QTimer
+    qtcore.QEasingCurve = _QEasingCurve
+    qtcore.QPropertyAnimation = _QPropertyAnimation
+    qtcore.QObject = _QObject
+    qtcore.QThread = _QThread
+    qtcore.QUrl = _QUrl
+    qtcore.Signal = _make_signal
     qtgui.QPixmap = _Widget
+    qtgui.QImage = _Widget
+    qtgui.QColor = _Widget
     qtmultimedia.QAudioOutput = _Widget
     qtmultimedia.QMediaPlayer = _Widget
     qtmultimediawidgets.QVideoWidget = _Widget
@@ -61,9 +126,23 @@ def _build_stub_modules():
     qtwidgets.QWidget = _Widget
     qtwidgets.QHBoxLayout = _Widget
     qtwidgets.QAbstractItemView = _Widget
+    qtwidgets.QGraphicsOpacityEffect = _Widget
+    qtwidgets.QLabel = _Widget
+    qtwidgets.QDialog = _Widget
+    qtwidgets.QPushButton = _Widget
+    qtwidgets.QSlider = _Widget
+    qtwidgets.QTableWidget = _Widget
+    qtwidgets.QTableWidgetItem = _Widget
+    qtwidgets.QHeaderView = _Widget
 
     config_module = types.ModuleType("src.app.config")
     config_module.DEFAULT_CONFIG = {"data_root": "D:/VideoSeek"}
+    config_module.CONFIG_ENUMS = {
+        "chunk_similarity_mode": {"chunk", "frame"},
+        "search_mode": {"frame", "chunk"},
+        "theme": {"dark", "light"},
+        "language": {"zh", "en"},
+    }
     config_module.get_app_version = lambda: "1.0.0"
     config_module.get_configured_data_root = lambda config=None: "D:/VideoSeek"
     config_module.get_data_storage_paths = lambda config=None: {
@@ -79,6 +158,7 @@ def _build_stub_modules():
 
     clip_module = types.ModuleType("src.core.clip_embedding")
     clip_module.get_engine_runtime_status = lambda: {}
+    clip_module.get_engine_runtime_warning = lambda: None
     clip_module.reset_engine = lambda: None
 
     about_module = types.ModuleType("src.services.about_service")
@@ -130,6 +210,7 @@ def _build_stub_modules():
     utils_module.get_ffmpeg_status_text = lambda: "ffmpeg"
     utils_module.get_configured_model_dir = lambda: "D:/VideoSeek/models"
     utils_module.load_meta = lambda path: {"libraries": {}}
+    utils_module.save_meta = lambda meta, path: None
     utils_module.normalize_sampling_fps_mode = lambda value: value
     utils_module.normalize_sampling_fps_rules_text = lambda value: value
     utils_module.open_folder_in_explorer = lambda path: None
@@ -137,14 +218,25 @@ def _build_stub_modules():
     utils_module.parse_sampling_fps_rules = lambda text: []
     utils_module.resolve_sampling_fps = lambda *args, **kwargs: 1.0
     utils_module.validate_sampling_fps_rules = lambda text: (True, "")
+    utils_module.validate_sampling_fps_rules_full_coverage = lambda text: (True, "")
+    utils_module.ensure_sampling_fps_rules_open_tail = lambda text: text
+    utils_module.get_configured_ffmpeg_target_path = lambda: ""
+    utils_module.get_resource_path = lambda name: ""
     utils_module.sync_ffmpeg_path_to_config = lambda: ""
     utils_module.sync_model_dir_to_config = lambda: ""
 
     version_module = types.ModuleType("src.services.version_service")
     version_module.get_local_version_status = lambda language="zh": {}
 
+    model_package_module = types.ModuleType("src.services.model_package_service")
+    model_package_module.remove_model_profile = lambda *args, **kwargs: None
+    model_package_module.ensure_default_clip_manifest = lambda *args, **kwargs: None
+
     def _stub_class(name):
         return type(name, (), {})
+
+    gui_remix_stub = types.ModuleType("ui.gui_remix")
+    gui_remix_stub.RemixGuiMixin = type("RemixGuiMixin", (), {})
 
     stubs = {
         "PySide6": pyside6,
@@ -153,6 +245,8 @@ def _build_stub_modules():
         "PySide6.QtMultimedia": qtmultimedia,
         "PySide6.QtMultimediaWidgets": qtmultimediawidgets,
         "PySide6.QtWidgets": qtwidgets,
+        "ui.gui_remix": gui_remix_stub,
+        "src.services.model_package_service": model_package_module,
         "src.app.config": config_module,
         "src.app.i18n": i18n_module,
         "src.core.clip_embedding": clip_module,
@@ -172,10 +266,11 @@ def _build_stub_modules():
 
     module_specs = {
         "ui.app_meta_controller": {"AppMetaController": _stub_class("AppMetaController")},
-        "ui.components": {
+        "ui.widgets.components": {
             "LibraryPage": _stub_class("LibraryPage"),
             "LinkSearchPage": _stub_class("LinkSearchPage"),
             "NavigationSidebar": _stub_class("NavigationSidebar"),
+            "RemixMatchPage": _stub_class("RemixMatchPage"),
             "SearchPage": _stub_class("SearchPage"),
             "SettingsPage": _stub_class("SettingsPage"),
         },
@@ -188,7 +283,7 @@ def _build_stub_modules():
             "SamplingRulesDialog": _stub_class("SamplingRulesDialog"),
         },
         "ui.indexing_controller": {"IndexingController": _stub_class("IndexingController")},
-        "ui.layout": {"WINDOW_SIZES": {}, "apply_window_size": lambda *args, **kwargs: None},
+        "ui.widgets.layout": {"WINDOW_SIZES": {}, "apply_window_size": lambda *args, **kwargs: None},
         "ui.mobile_bridge_controller": {"MobileBridgeController": _stub_class("MobileBridgeController")},
         "ui.network_search_controller": {"NetworkSearchController": _stub_class("NetworkSearchController")},
         "ui.preview_dialog": {
@@ -199,9 +294,15 @@ def _build_stub_modules():
         "ui.preview_controller": {"PreviewController": _stub_class("PreviewController")},
         "ui.runtime_resource_controller": {"RuntimeResourceController": _stub_class("RuntimeResourceController")},
         "ui.search_controller": {"SearchController": _stub_class("SearchController")},
-        "ui.styles": {"DARK_STYLE": "", "LIGHT_STYLE": ""},
-        "ui.table_views": {"populate_library_table": lambda *args, **kwargs: None},
-        "ui.workers": {"LocalVectorDetailsWorker": _stub_class("LocalVectorDetailsWorker")},
+        "ui.widgets.styles": {"DARK_STYLE": "", "LIGHT_STYLE": ""},
+        "ui.table_views": {
+            "populate_library_table": lambda *args, **kwargs: None,
+            "populate_result_table": lambda *args, **kwargs: None,
+        },
+        "ui.workers": {
+            "LocalVectorDetailsWorker": _stub_class("LocalVectorDetailsWorker"),
+            "ModelPackageImportWorker": _stub_class("ModelPackageImportWorker"),
+        },
     }
     for module_name, attributes in module_specs.items():
         module = types.ModuleType(module_name)
@@ -217,8 +318,12 @@ def _load_gui_module():
     stack = ExitStack()
     stack.enter_context(patch.dict(sys.modules, stubs))
     sys.modules.pop("ui.gui", None)
-    gui_module = importlib.import_module("ui.gui")
-    return gui_module, stack
+    try:
+        gui_module = importlib.import_module("ui.gui")
+        return gui_module, stack
+    except Exception:
+        stack.close()
+        raise
 
 
 class GuiSettingsPathTests(unittest.TestCase):
@@ -329,7 +434,7 @@ class GuiSettingsPathTests(unittest.TestCase):
         dummy._build_runtime_diagnostics_detail = lambda status: "Missing DLLs: DirectML.dll"
 
         with (
-            patch("ui.gui.get_engine_runtime_status", return_value={"backend": "CPU", "diagnostics": {"missing_dlls": ["DirectML.dll"]}}),
+            patch("ui.gui_runtime.get_engine_runtime_status", return_value={"backend": "CPU", "diagnostics": {"missing_dlls": ["DirectML.dll"]}}),
             patch("ui.gui.QApplication.clipboard", return_value=clipboard),
         ):
             gui_module.MainWindow.copy_runtime_diagnostics(dummy)
@@ -346,8 +451,11 @@ class GuiSettingsPathTests(unittest.TestCase):
         dummy = types.SimpleNamespace(
             texts={
                 "setting_show_runtime_diagnostics_title": "GPU diagnostics",
+                "close": "Close",
+                "setting_copy_runtime_diagnostics": "Copy",
             },
-            show_info_dialog=MagicMock(),
+            is_dark_mode=False,
+            language="zh",
         )
         dummy._build_runtime_diagnostics_payload = lambda status: {
             "summary": "DirectML / DirectX 12: DirectML.dll",
@@ -355,14 +463,26 @@ class GuiSettingsPathTests(unittest.TestCase):
             "warning": "GPU execution is unavailable.",
         }
 
-        with patch("ui.gui.get_engine_runtime_status", return_value={"backend": "CPU"}):
+        dialog_inst = MagicMock()
+        dialog_inst.exec = MagicMock(return_value=0)
+        dialog_inst.confirmed = MagicMock(return_value=False)
+
+        with (
+            patch("ui.gui_runtime.get_engine_runtime_status", return_value={"backend": "CPU"}),
+            patch("ui.gui_runtime.AppMessageDialog") as mock_dialog,
+        ):
+            mock_dialog.return_value = dialog_inst
             gui_module.MainWindow.show_runtime_diagnostics(dummy)
 
-        dummy.show_info_dialog.assert_called_once_with(
-            "GPU diagnostics",
-            "DirectML / DirectX 12: DirectML.dll\n\nMissing DLLs: DirectML.dll\n\nGPU execution is unavailable.",
-            kind="info",
-        )
+        mock_dialog.assert_called_once()
+        args, kwargs = mock_dialog.call_args
+        self.assertEqual(args[0], "GPU diagnostics")
+        self.assertIn("DirectML / DirectX 12: DirectML.dll", args[1])
+        self.assertIn("Missing DLLs: DirectML.dll", args[1])
+        self.assertIn("GPU execution is unavailable.", args[1])
+        self.assertEqual(kwargs.get("kind"), "info")
+        self.assertTrue(kwargs.get("confirm"))
+        dialog_inst.exec.assert_called_once()
 
     def test_migrate_data_root_if_needed_requests_confirmation_and_calls_service(self):
         gui_module, stack = _load_gui_module()
@@ -377,7 +497,7 @@ class GuiSettingsPathTests(unittest.TestCase):
             show_confirm_dialog=MagicMock(return_value=True),
         )
 
-        with patch("ui.gui.migrate_app_data_root", return_value={"migrated": True, "new_data_root": "D:/new"}) as mock_migrate:
+        with patch("ui.gui_settings.migrate_app_data_root", return_value={"migrated": True, "new_data_root": "D:/new"}) as mock_migrate:
             result = gui_module.MainWindow._migrate_data_root_if_needed(dummy, "D:/old", "D:/new")
 
         self.assertEqual(result["new_data_root"], "D:/new")
@@ -397,7 +517,7 @@ class GuiSettingsPathTests(unittest.TestCase):
             show_confirm_dialog=MagicMock(return_value=False),
         )
 
-        with patch("ui.gui.migrate_app_data_root") as mock_migrate:
+        with patch("ui.gui_settings.migrate_app_data_root") as mock_migrate:
             result = gui_module.MainWindow._migrate_data_root_if_needed(dummy, "D:/old", "D:/new")
 
         self.assertFalse(result)
@@ -449,7 +569,10 @@ class GuiSettingsPathTests(unittest.TestCase):
         gui_module, stack = _load_gui_module()
         self.addCleanup(stack.close)
         dummy = types.SimpleNamespace(
-            texts={"model_features_disabled": "Disabled"},
+            texts={
+                "model_features_disabled": "Disabled",
+                "index_start_failed": "Index failed",
+            },
             library_page=types.SimpleNamespace(
                 lbl_status=MagicMock(),
                 btn_sync_db=MagicMock(),
@@ -467,6 +590,7 @@ class GuiSettingsPathTests(unittest.TestCase):
             _apply_index_issue_button_state=MagicMock(),
             refresh_library_table=MagicMock(),
             show_error_dialog=MagicMock(),
+            _refresh_search_session_hint=MagicMock(),
             _last_index_issues=["old issue"],
             _last_index_issue_target="old",
         )
@@ -508,17 +632,17 @@ class GuiSettingsPathTests(unittest.TestCase):
             ),
             _normalize_requested_data_root=lambda value: value.replace("\\", "/"),
             _get_pending_cleanup_data_root=lambda config=None: "D:/old",
-            _refresh_pending_cleanup_action=MagicMock(),
+            _refresh_pending_cleanup_actions=MagicMock(),
             show_confirm_dialog=MagicMock(return_value=True),
             show_info_dialog=MagicMock(),
             show_error_dialog=MagicMock(),
         )
 
         with (
-            patch("ui.gui.load_config", return_value={"data_root": "D:/new", "pending_cleanup_data_root": "D:/old"}),
-            patch("ui.gui.save_config", side_effect=saved_configs.append),
-            patch("ui.gui.get_configured_data_root", return_value="D:/new"),
-            patch("ui.gui.cleanup_old_data_root_service", return_value={"cleaned": True, "old_data_dir": "D:/old/data"}) as mock_cleanup,
+            patch("ui.gui_settings.load_config", return_value={"data_root": "D:/new", "pending_cleanup_data_root": "D:/old"}),
+            patch("ui.gui_settings.save_config", side_effect=saved_configs.append),
+            patch("ui.gui_settings.get_configured_data_root", return_value="D:/new"),
+            patch("ui.gui_settings.cleanup_old_data_root_service", return_value={"cleaned": True, "old_data_dir": "D:/old/data"}) as mock_cleanup,
         ):
             gui_module.MainWindow.cleanup_old_data_root(dummy)
 
@@ -532,7 +656,7 @@ class GuiSettingsPathTests(unittest.TestCase):
         mock_cleanup.assert_called_once_with("D:/old", active_data_root="D:/new")
         self.assertEqual(saved_configs[-1]["data_root"], "D:/new")
         self.assertNotIn("pending_cleanup_data_root", saved_configs[-1])
-        dummy._refresh_pending_cleanup_action.assert_called_once()
+        dummy._refresh_pending_cleanup_actions.assert_called_once()
         dummy.settings_page.lbl_status.setText.assert_called_once_with("Cleaned D:/old/data")
         dummy.show_info_dialog.assert_called_once_with("Done", "Cleaned D:/old/data", kind="success")
 
@@ -560,16 +684,16 @@ class GuiSettingsPathTests(unittest.TestCase):
             ),
             _normalize_requested_data_root=lambda value: value.replace("\\", "/"),
             _get_pending_cleanup_data_root=lambda config=None: "D:/same",
-            _refresh_pending_cleanup_action=MagicMock(),
+            _refresh_pending_cleanup_actions=MagicMock(),
             show_confirm_dialog=MagicMock(return_value=True),
             show_info_dialog=MagicMock(),
             show_error_dialog=MagicMock(),
         )
 
         with (
-            patch("ui.gui.load_config", return_value={"data_root": "D:/same", "pending_cleanup_data_root": "D:/same"}),
-            patch("ui.gui.get_configured_data_root", return_value="D:/same"),
-            patch("ui.gui.cleanup_old_data_root_service") as mock_cleanup,
+            patch("ui.gui_settings.load_config", return_value={"data_root": "D:/same", "pending_cleanup_data_root": "D:/same"}),
+            patch("ui.gui_settings.get_configured_data_root", return_value="D:/same"),
+            patch("ui.gui_settings.cleanup_old_data_root_service") as mock_cleanup,
         ):
             gui_module.MainWindow.cleanup_old_data_root(dummy)
 

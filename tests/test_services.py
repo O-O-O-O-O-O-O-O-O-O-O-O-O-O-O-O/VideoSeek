@@ -38,9 +38,17 @@ from src.workflows import update_video
 from src import utils
 
 
+def _model_dirs_from_test_config(config=None):
+    cfg = dict(config or {})
+    return {
+        "vector_dir": cfg.get("vector_dir", "source/vector"),
+        "index_dir": cfg.get("index_dir", "source/index"),
+    }
+
+
 class IndexingServiceTests(unittest.TestCase):
-    @patch("src.services.library_service.save_meta")
-    @patch("src.services.library_service.load_meta", return_value={"libraries": {"D:\\videos": {"files": {}}}})
+    @patch("src.services.library_service.save_model_metadata")
+    @patch("src.services.library_service.load_model_metadata", return_value={"libraries": {"D:\\videos": {"files": {}}}})
     @patch("src.services.library_service.load_config", return_value={"meta_file": "source/meta.json"})
     def test_add_library_rejects_exact_duplicate(
         self,
@@ -54,8 +62,8 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertEqual(result["reason"], "exists")
         mock_save_meta.assert_not_called()
 
-    @patch("src.services.library_service.save_meta")
-    @patch("src.services.library_service.load_meta", return_value={"libraries": {"D:\\videos": {"files": {}}}})
+    @patch("src.services.library_service.save_model_metadata")
+    @patch("src.services.library_service.load_model_metadata", return_value={"libraries": {"D:\\videos": {"files": {}}}})
     @patch("src.services.library_service.load_config", return_value={"meta_file": "source/meta.json"})
     def test_add_library_rejects_child_directory_overlap(
         self,
@@ -70,8 +78,8 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertEqual(utils.canonicalize_library_path(result["conflict_path"]), utils.canonicalize_library_path("D:\\videos"))
         mock_save_meta.assert_not_called()
 
-    @patch("src.services.library_service.save_meta")
-    @patch("src.services.library_service.load_meta", return_value={"libraries": {"D:\\videos\\anime": {"files": {}}}})
+    @patch("src.services.library_service.save_model_metadata")
+    @patch("src.services.library_service.load_model_metadata", return_value={"libraries": {"D:\\videos\\anime": {"files": {}}}})
     @patch("src.services.library_service.load_config", return_value={"meta_file": "source/meta.json"})
     def test_add_library_rejects_parent_directory_overlap(
         self,
@@ -89,8 +97,8 @@ class IndexingServiceTests(unittest.TestCase):
         )
         mock_save_meta.assert_not_called()
 
-    @patch("src.services.library_service.save_meta")
-    @patch("src.services.library_service.load_meta", return_value={"libraries": {"E:\\videos": {"files": {}}}})
+    @patch("src.services.library_service.save_model_metadata")
+    @patch("src.services.library_service.load_model_metadata", return_value={"libraries": {"E:\\videos": {"files": {}}}})
     @patch("src.services.library_service.load_config", return_value={"meta_file": "source/meta.json"})
     def test_add_library_allows_non_overlapping_directory_on_different_drive(
         self,
@@ -104,8 +112,8 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertEqual(result["reason"], "")
         mock_save_meta.assert_called_once()
 
-    @patch("src.services.library_service.save_meta")
-    @patch("src.services.library_service.load_meta", return_value={"libraries": {}})
+    @patch("src.services.library_service.save_model_metadata")
+    @patch("src.services.library_service.load_model_metadata", return_value={"libraries": {}})
     @patch("src.services.library_service.load_config", return_value={"meta_file": "source/meta.json"})
     def test_add_library_keeps_global_index_state_untouched(
         self,
@@ -119,10 +127,11 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertNotIn("global_index_state", mock_load_meta.return_value)
         mock_save_meta.assert_called_once()
 
+    @patch("src.services.library_service.get_local_model_asset_dirs", return_value={"vector_dir": "source/vector", "index_dir": "source/index", "base_dir": "x"})
     @patch("src.services.library_service.os.path.exists", return_value=True)
-    @patch("src.services.library_service.save_meta")
+    @patch("src.services.library_service.save_model_metadata")
     @patch(
-        "src.services.library_service.load_meta",
+        "src.services.library_service.load_model_metadata",
         return_value={
             "libraries": {
                 "D:\\videos": {
@@ -147,6 +156,7 @@ class IndexingServiceTests(unittest.TestCase):
         mock_load_meta,
         mock_save_meta,
         _mock_exists,
+        _mock_get_model_dirs,
     ):
         result = library_service.remove_library("D:\\videos", lambda *_args, **_kwargs: None)
 
@@ -154,10 +164,11 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertEqual(mock_load_meta.return_value["global_index_state"], library_service.GLOBAL_INDEX_STATE_STALE)
         mock_save_meta.assert_called_once()
 
+    @patch("src.services.library_service.get_local_model_asset_dirs", return_value={"vector_dir": "source/vector", "index_dir": "source/index", "base_dir": "x"})
     @patch("src.services.library_service.os.path.exists", return_value=False)
-    @patch("src.services.library_service.save_meta")
+    @patch("src.services.library_service.save_model_metadata")
     @patch(
-        "src.services.library_service.load_meta",
+        "src.services.library_service.load_model_metadata",
         return_value={
             "libraries": {
                 "D:\\videos": {
@@ -181,6 +192,7 @@ class IndexingServiceTests(unittest.TestCase):
         mock_load_meta,
         mock_save_meta,
         _mock_exists,
+        _mock_get_model_dirs,
     ):
         result = library_service.remove_library("D:\\videos", lambda *_args, **_kwargs: None)
 
@@ -381,6 +393,7 @@ class IndexingServiceTests(unittest.TestCase):
             ],
         )
 
+    @patch("src.services.indexing_service.get_local_model_asset_dirs", return_value={"index_dir": "index", "vector_dir": "vector"})
     @patch("src.services.indexing_service.get_video_duration_seconds", return_value=60.0)
     @patch("src.services.indexing_service.generate_vectors_and_index_for_video", return_value=([], [], None))
     @patch("src.services.indexing_service.os.path.getmtime", return_value=123.0)
@@ -391,6 +404,7 @@ class IndexingServiceTests(unittest.TestCase):
         _mock_getmtime,
         _mock_generate,
         _mock_duration,
+        _mock_model_dirs,
     ):
         lib_files = {}
 
@@ -410,6 +424,7 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertEqual(lib_files["clip.mp4"]["vid"], "vid_a")
         self.assertEqual(lib_files["clip.mp4"]["sync_failure_reason"], "no_frames")
 
+    @patch("src.services.indexing_service.get_local_model_asset_dirs", return_value={"index_dir": "index", "vector_dir": "vector"})
     @patch("src.services.indexing_service.get_video_duration_seconds", return_value=0.6)
     @patch("src.services.indexing_service.generate_vectors_and_index_for_video", return_value=([], [], None))
     @patch("src.services.indexing_service.os.path.getmtime", return_value=123.0)
@@ -420,6 +435,7 @@ class IndexingServiceTests(unittest.TestCase):
         _mock_getmtime,
         _mock_generate,
         _mock_duration,
+        _mock_model_dirs,
     ):
         lib_files = {}
 
@@ -437,6 +453,7 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertFalse(search_assets_changed)
         self.assertEqual(lib_files["clip.mp4"]["sync_failure_reason"], "too_short")
 
+    @patch("src.services.indexing_service.get_local_model_asset_dirs", return_value={"index_dir": "index", "vector_dir": "vector"})
     @patch("src.services.indexing_service.create_clip_index")
     @patch("src.services.indexing_service.os.path.exists", return_value=False)
     @patch("src.services.indexing_service.load_video_vectors_by_id")
@@ -449,6 +466,7 @@ class IndexingServiceTests(unittest.TestCase):
         mock_load_vectors,
         _mock_exists,
         mock_create_index,
+        _mock_model_dirs,
     ):
         vectors = np.array([[1.0, 0.0]], dtype=np.float32)
         timestamps = np.array([0.0], dtype=np.float32)
@@ -471,6 +489,7 @@ class IndexingServiceTests(unittest.TestCase):
         mock_create_index.assert_called_once()
         self.assertEqual(mock_create_index.call_args.args[1], "index\\vid_a_index.faiss")
 
+    @patch("src.services.indexing_service.get_local_model_asset_dirs", return_value={"index_dir": "index", "vector_dir": "vector"})
     @patch(
         "src.services.indexing_service.generate_vectors_and_index_for_video",
         return_value=(np.array([[1.0]], dtype=np.float32), [0.0, 1.0], None),
@@ -482,6 +501,7 @@ class IndexingServiceTests(unittest.TestCase):
         _mock_stream,
         _mock_getmtime,
         _mock_generate,
+        _mock_model_dirs,
     ):
         lib_files = {}
 
@@ -500,6 +520,7 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertEqual(lib_files["clip.mp4"]["asset_state"], "sync_failed")
         self.assertEqual(lib_files["clip.mp4"]["sync_failure_reason"], "vector_timestamp_mismatch")
 
+    @patch("src.services.indexing_service.get_local_model_asset_dirs", return_value={"index_dir": "index", "vector_dir": "vector"})
     @patch(
         "src.services.indexing_service.generate_vectors_and_index_for_video",
         side_effect=RuntimeError("DirectML device lost: GPU out of memory"),
@@ -511,6 +532,7 @@ class IndexingServiceTests(unittest.TestCase):
         _mock_stream,
         _mock_getmtime,
         _mock_generate,
+        _mock_model_dirs,
     ):
         lib_files = {}
         issues = []
@@ -544,12 +566,14 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertEqual(reason, "system_out_of_memory")
 
     @patch.dict("src.services.indexing_service.os.environ", {"VIDEOSEEK_DEBUG_FORCE_GPU_OOM": "1"}, clear=False)
+    @patch("src.services.indexing_service.get_local_model_asset_dirs", return_value={"index_dir": "index", "vector_dir": "vector"})
     @patch("src.services.indexing_service.os.path.getmtime", return_value=123.0)
     @patch("src.services.indexing_service._is_valid_video_source", return_value=True)
     def test_process_single_video_supports_debug_forced_gpu_oom(
         self,
-        _mock_getmtime,
         _mock_stream,
+        _mock_getmtime,
+        _mock_model_dirs,
     ):
         lib_files = {}
         issues = []
@@ -573,12 +597,14 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertIn("debug injection", issues[0]["detail"].lower())
 
     @patch.dict("src.services.indexing_service.os.environ", {"VIDEOSEEK_DEBUG_FORCE_SYSTEM_OOM": "1"}, clear=False)
+    @patch("src.services.indexing_service.get_local_model_asset_dirs", return_value={"index_dir": "index", "vector_dir": "vector"})
     @patch("src.services.indexing_service.os.path.getmtime", return_value=123.0)
     @patch("src.services.indexing_service._is_valid_video_source", return_value=True)
     def test_process_single_video_supports_debug_forced_system_oom(
         self,
-        _mock_getmtime,
         _mock_stream,
+        _mock_getmtime,
+        _mock_model_dirs,
     ):
         lib_files = {}
         issues = []
@@ -695,6 +721,7 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertEqual(result[1], [0.0])
         self.assertEqual(result[2], ["D:\\videos\\clip.mp4"])
 
+    @patch("src.services.indexing_service.get_local_model_asset_dirs", return_value={"index_dir": "index", "vector_dir": "vector"})
     @patch("src.services.indexing_service.os.remove")
     @patch("src.services.indexing_service.os.path.exists")
     @patch("src.services.indexing_service.load_video_chunks_by_id", return_value=[])
@@ -713,6 +740,7 @@ class IndexingServiceTests(unittest.TestCase):
         _mock_load_chunks,
         mock_exists,
         mock_remove,
+        _mock_get_model_dirs,
     ):
         meta = {"libraries": {"D:\\videos": {"files": {}}}}
         persist_calls = []
@@ -735,9 +763,9 @@ class IndexingServiceTests(unittest.TestCase):
 
     @patch("src.workflows.update_video.build_global_index", return_value=("v", "t", "p", "i"))
     @patch("src.workflows.update_video.scan_target_libraries", return_value=([1], [0.0], ["a.mp4"], [], [], [], [], False))
-    @patch("src.workflows.update_video.save_meta")
+    @patch("src.workflows.update_video.save_model_metadata")
     @patch("src.workflows.update_video.cleanup_missing_library_files", side_effect=AssertionError("should not cleanup"))
-    @patch("src.workflows.update_video.load_meta", return_value={"libraries": {"D:\\videos": {"files": {"a.mp4": {"vid": "vid"}}}}})
+    @patch("src.workflows.update_video.load_model_metadata", return_value={"libraries": {"D:\\videos": {"files": {"a.mp4": {"vid": "vid"}}}}})
     @patch("src.workflows.update_video.load_config")
     @patch("src.workflows.update_video.garbage_collect_indices")
     @patch("src.workflows.update_video.os.path.exists", return_value=True)
@@ -766,9 +794,9 @@ class IndexingServiceTests(unittest.TestCase):
 
     @patch("src.workflows.update_video.build_global_index", return_value=("v", "t", "p", "i"))
     @patch("src.workflows.update_video.scan_target_libraries", return_value=([1], [0.0], ["a.mp4"], [], [], [], [], False))
-    @patch("src.workflows.update_video.save_meta")
+    @patch("src.workflows.update_video.save_model_metadata")
     @patch("src.workflows.update_video.cleanup_missing_library_files", return_value=iter(()))
-    @patch("src.workflows.update_video.load_meta", return_value={"libraries": {"D:\\videos": {"files": {"a.mp4": {"vid": "vid"}}}}})
+    @patch("src.workflows.update_video.load_model_metadata", return_value={"libraries": {"D:\\videos": {"files": {"a.mp4": {"vid": "vid"}}}}})
     @patch("src.workflows.update_video.load_config")
     @patch("src.workflows.update_video.garbage_collect_indices")
     def test_update_videos_flow_passes_issue_callback_to_scan(
@@ -794,10 +822,10 @@ class IndexingServiceTests(unittest.TestCase):
 
     @patch("src.workflows.update_video.build_global_index")
     @patch("src.workflows.update_video.scan_target_libraries", return_value=([1], [0.0], ["a.mp4"], [], [], [], [], True))
-    @patch("src.workflows.update_video.save_meta")
+    @patch("src.workflows.update_video.save_model_metadata")
     @patch("src.workflows.update_video.cleanup_missing_library_files", return_value=iter(()))
     @patch(
-        "src.workflows.update_video.load_meta",
+        "src.workflows.update_video.load_model_metadata",
         return_value={
             "libraries": {"D:\\videos": {"files": {"a.mp4": {"vid": "vid"}}}},
             "global_index_state": library_service.GLOBAL_INDEX_STATE_STALE,
@@ -834,10 +862,10 @@ class IndexingServiceTests(unittest.TestCase):
     @patch("src.workflows.update_video.os.path.exists")
     @patch("src.workflows.update_video.build_global_index", return_value=("v", "t", "p", "i"))
     @patch("src.workflows.update_video.scan_target_libraries", return_value=([1], [0.0], ["a.mp4"], [], [], [], [], False))
-    @patch("src.workflows.update_video.save_meta")
+    @patch("src.workflows.update_video.save_model_metadata")
     @patch("src.workflows.update_video.cleanup_missing_library_files", side_effect=AssertionError("should not cleanup"))
     @patch(
-        "src.workflows.update_video.load_meta",
+        "src.workflows.update_video.load_model_metadata",
         return_value={
             "libraries": {
                 "D:\\videos": {
@@ -885,10 +913,10 @@ class IndexingServiceTests(unittest.TestCase):
 
     @patch("src.workflows.update_video.build_global_index", return_value=("v", "t", "p", "i"))
     @patch("src.workflows.update_video.scan_target_libraries", return_value=([1], [0.0], ["a.mp4"], [], [], [], [], True))
-    @patch("src.workflows.update_video.save_meta")
+    @patch("src.workflows.update_video.save_model_metadata")
     @patch("src.workflows.update_video.cleanup_missing_library_files", return_value=iter(()))
     @patch(
-        "src.workflows.update_video.load_meta",
+        "src.workflows.update_video.load_model_metadata",
         return_value={
             "libraries": {"D:\\videos": {"files": {"a.mp4": {"vid": "vid"}}}},
             "global_index_state": library_service.GLOBAL_INDEX_STATE_STALE,
@@ -920,9 +948,9 @@ class IndexingServiceTests(unittest.TestCase):
     @patch("src.workflows.update_video.delete_physical_video_data")
     @patch("src.workflows.update_video.build_global_index", return_value=("v", "t", "p", "i"))
     @patch("src.workflows.update_video.scan_target_libraries", return_value=([1], [0.0], ["a.mp4"], [], [], [], [], True))
-    @patch("src.workflows.update_video.save_meta")
+    @patch("src.workflows.update_video.save_model_metadata")
     @patch("src.workflows.update_video.cleanup_missing_library_files", return_value=iter(["vid_a"]))
-    @patch("src.workflows.update_video.load_meta", return_value={"libraries": {"D:\\videos": {"files": {"a.mp4": {"vid": "vid"}}}}})
+    @patch("src.workflows.update_video.load_model_metadata", return_value={"libraries": {"D:\\videos": {"files": {"a.mp4": {"vid": "vid"}}}}})
     @patch("src.workflows.update_video.load_config")
     @patch("src.workflows.update_video.garbage_collect_indices")
     def test_update_videos_flow_forces_cleanup_when_requested(
@@ -950,9 +978,9 @@ class IndexingServiceTests(unittest.TestCase):
 
     @patch("src.workflows.update_video.build_global_index", return_value=("v", "t", "p", "i"))
     @patch("src.workflows.update_video.scan_target_libraries", return_value=([1], [0.0], ["a.mp4"], [], [], [], [], True))
-    @patch("src.workflows.update_video.save_meta")
+    @patch("src.workflows.update_video.save_model_metadata")
     @patch("src.workflows.update_video.cleanup_missing_library_files", return_value=iter(["vid_a"]))
-    @patch("src.workflows.update_video.load_meta", return_value={"libraries": {"D:\\videos": {"files": {"a.mp4": {"vid": "vid"}}}}})
+    @patch("src.workflows.update_video.load_model_metadata", return_value={"libraries": {"D:\\videos": {"files": {"a.mp4": {"vid": "vid"}}}}})
     @patch("src.workflows.update_video.load_config")
     @patch("src.workflows.update_video.garbage_collect_indices")
     @patch("src.workflows.update_video.delete_physical_video_data")
@@ -983,8 +1011,8 @@ class IndexingServiceTests(unittest.TestCase):
         mock_delete_video_data.assert_called_once()
         mock_build.assert_called_once()
 
-    @patch("src.workflows.update_video.save_meta")
-    @patch("src.workflows.update_video.load_meta", return_value={"libraries": {"D:\\videos": {"files": {}}}})
+    @patch("src.workflows.update_video.save_model_metadata")
+    @patch("src.workflows.update_video.load_model_metadata", return_value={"libraries": {"D:\\videos": {"files": {}}}})
     @patch("src.workflows.update_video.load_config", return_value={"auto_cleanup_missing_files": False, "meta_file": "source/meta.json"})
     @patch("src.workflows.update_video.garbage_collect_indices")
     @patch("src.workflows.update_video.scan_target_libraries", side_effect=RuntimeError("interrupted"))
@@ -1005,9 +1033,9 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertEqual(saved_meta["libraries"]["D:\\videos"]["index_state"], "partial")
         self.assertTrue(mock_save_meta.called)
 
-    @patch("src.workflows.update_video.save_meta")
+    @patch("src.workflows.update_video.save_model_metadata")
     @patch(
-        "src.workflows.update_video.load_meta",
+        "src.workflows.update_video.load_model_metadata",
         return_value={
             "libraries": {"D:\\videos": {"files": {"a.mp4": {"vid": "vid"}}}},
             "global_index_state": library_service.GLOBAL_INDEX_STATE_FRESH,
@@ -1425,6 +1453,26 @@ class UtilsTests(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("-c:a") + 1], "aac")
         self.assertEqual(cmd[cmd.index("-t") + 1], "3.500")
 
+    @patch("src.utils.subprocess.run")
+    @patch("src.utils.get_ffmpeg_path", return_value="ffmpeg")
+    @patch("src.utils.ensure_folder_exists")
+    @patch("src.utils.os.path.exists", return_value=False)
+    def test_export_original_clip_silent_has_no_audio(
+        self,
+        _mock_exists,
+        _mock_ensure_folder_exists,
+        _mock_get_ffmpeg,
+        mock_run,
+    ):
+        mock_run.return_value = unittest.mock.Mock(returncode=0)
+
+        utils.export_original_clip("D:/videos/clip.mp4", 8.0, 3.5, "D:/out/clip.mp4", silent=True)
+
+        cmd = mock_run.call_args.args[0]
+        self.assertIn("-an", cmd)
+        self.assertNotIn("-c:a", cmd)
+        self.assertEqual(cmd.count("-map"), 1)
+
 
 class ModelServiceTests(unittest.TestCase):
     def test_normalize_manifest_uses_base_url_for_missing_file_urls(self):
@@ -1485,10 +1533,7 @@ class ModelServiceTests(unittest.TestCase):
 
 class LibraryDetailServiceTests(unittest.TestCase):
     @patch("src.services.library_service.load_clip_index", return_value=object())
-    @patch(
-        "src.services.library_service.load_vectors",
-        return_value={"vector": np.array([[1.0]], dtype=np.float32), "timestamps": np.array([0.0], dtype=np.float32)},
-    )
+    @patch("src.services.library_service.get_local_model_asset_dirs", side_effect=_model_dirs_from_test_config)
     @patch("src.services.library_service.os.path.exists")
     @patch("src.services.library_service.list_libraries")
     @patch("src.services.library_service.load_config")
@@ -1497,7 +1542,7 @@ class LibraryDetailServiceTests(unittest.TestCase):
         mock_load_config,
         mock_list_libraries,
         mock_exists,
-        _mock_load_vectors,
+        _mock_get_index,
         _mock_load_index,
     ):
         mock_load_config.return_value = {
@@ -1539,10 +1584,7 @@ class LibraryDetailServiceTests(unittest.TestCase):
         self.assertEqual(result["entries"][1]["sync_failure_reason"], "")
 
     @patch("src.services.library_service.load_clip_index", return_value=object())
-    @patch(
-        "src.services.library_service.load_vectors",
-        return_value={"vector": np.array([[1.0]], dtype=np.float32), "timestamps": np.array([0.0], dtype=np.float32)},
-    )
+    @patch("src.services.library_service.get_local_model_asset_dirs", side_effect=_model_dirs_from_test_config)
     @patch("src.services.library_service.os.path.exists")
     @patch("src.services.library_service.list_libraries")
     @patch("src.services.library_service.load_config")
@@ -1551,7 +1593,7 @@ class LibraryDetailServiceTests(unittest.TestCase):
         mock_load_config,
         mock_list_libraries,
         mock_exists,
-        _mock_load_vectors,
+        _mock_get_index,
         _mock_load_index,
     ):
         mock_load_config.return_value = {
@@ -1584,10 +1626,7 @@ class LibraryDetailServiceTests(unittest.TestCase):
         self.assertEqual(result["entries"][0]["asset_state"], "missing_source")
 
     @patch("src.services.library_service.load_clip_index", return_value=object())
-    @patch(
-        "src.services.library_service.load_vectors",
-        return_value={"vector": np.array([[1.0]], dtype=np.float32), "timestamps": np.array([0.0], dtype=np.float32)},
-    )
+    @patch("src.services.library_service.get_local_model_asset_dirs", side_effect=_model_dirs_from_test_config)
     @patch("src.services.library_service.os.path.exists")
     @patch("src.services.library_service.list_libraries")
     @patch("src.services.library_service.load_config")
@@ -1596,7 +1635,7 @@ class LibraryDetailServiceTests(unittest.TestCase):
         mock_load_config,
         mock_list_libraries,
         mock_exists,
-        _mock_load_vectors,
+        _mock_get_index,
         _mock_load_index,
     ):
         mock_load_config.return_value = {
@@ -1626,6 +1665,7 @@ class LibraryDetailServiceTests(unittest.TestCase):
 
     @patch("src.services.library_service._read_index_health")
     @patch("src.services.library_service._read_vector_health")
+    @patch("src.services.library_service.get_local_model_asset_dirs", side_effect=_model_dirs_from_test_config)
     @patch("src.services.library_service.os.path.exists")
     @patch("src.services.library_service.list_libraries")
     @patch("src.services.library_service.load_config")
@@ -1634,6 +1674,7 @@ class LibraryDetailServiceTests(unittest.TestCase):
         mock_load_config,
         mock_list_libraries,
         mock_exists,
+        _mock_model_dirs,
         mock_read_vector_health,
         mock_read_index_health,
     ):
@@ -1662,10 +1703,7 @@ class LibraryDetailServiceTests(unittest.TestCase):
         self.assertEqual(result["entries"][0]["asset_state"], "sync_failed")
 
     @patch("src.services.library_service.load_clip_index", return_value=object())
-    @patch(
-        "src.services.library_service.load_vectors",
-        return_value={"vector": np.array([[1.0]], dtype=np.float32), "timestamps": np.array([0.0], dtype=np.float32)},
-    )
+    @patch("src.services.library_service.get_local_model_asset_dirs", side_effect=_model_dirs_from_test_config)
     @patch("src.services.library_service.os.path.exists")
     @patch("src.services.library_service.list_libraries")
     @patch("src.services.library_service.load_config")
@@ -1674,7 +1712,7 @@ class LibraryDetailServiceTests(unittest.TestCase):
         mock_load_config,
         mock_list_libraries,
         mock_exists,
-        _mock_load_vectors,
+        _mock_get_index,
         _mock_load_index,
     ):
         mock_load_config.return_value = {
@@ -1999,7 +2037,11 @@ class MigratedStorageWorkflowTests(unittest.TestCase):
                 "index_dir": str(index_dir),
             }
 
-            update_video.delete_physical_video_data("vid_a", config)
+            with patch(
+                "src.workflows.update_video.get_local_model_asset_dirs",
+                return_value={"vector_dir": str(vector_dir), "index_dir": str(index_dir)},
+            ):
+                update_video.delete_physical_video_data("vid_a", config)
 
             self.assertFalse(vector_file.exists())
             self.assertFalse(index_file.exists())

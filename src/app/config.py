@@ -65,6 +65,7 @@ DEFAULT_CONFIG = {
     **build_data_storage_paths(APP_DATA_DIR),
     "remote_max_frames": 2000,
     "auto_cleanup_missing_files": False,
+    "export_video_silent": False,
     "show_debug_test_buttons": False,
     "theme": "dark",
     "language": "zh",
@@ -308,6 +309,10 @@ def _sanitize_general_settings(config):
     sanitized["auto_cleanup_missing_files"] = _coerce_bool(
         sanitized.get("auto_cleanup_missing_files", DEFAULT_CONFIG["auto_cleanup_missing_files"]),
         DEFAULT_CONFIG["auto_cleanup_missing_files"],
+    )
+    sanitized["export_video_silent"] = _coerce_bool(
+        sanitized.get("export_video_silent", DEFAULT_CONFIG["export_video_silent"]),
+        DEFAULT_CONFIG["export_video_silent"],
     )
     sanitized["show_debug_test_buttons"] = _coerce_bool(
         sanitized.get("show_debug_test_buttons", DEFAULT_CONFIG["show_debug_test_buttons"]),

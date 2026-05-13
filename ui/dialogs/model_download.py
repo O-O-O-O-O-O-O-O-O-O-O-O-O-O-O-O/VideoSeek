@@ -1,8 +1,9 @@
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QAbstractItemView, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QProgressBar, QPushButton, QVBoxLayout
 
 from src.app.i18n import get_texts
-from ui.layout import WINDOW_SIZES, apply_dialog_size
+from ui.widgets.layout import WINDOW_SIZES, apply_dialog_size
 
 from .common import dialog_palette
 
@@ -195,6 +196,43 @@ class ModelDownloadDialog(QDialog):
         self.go_download_button.clicked.connect(self.go_download_requested.emit)
         self.done_button.clicked.connect(self.accept)
         self._refresh_file_list()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # On first startup the top-level window frame may still be moving (WM placement / DPI),
+        # and Qt can reposition a modal dialog once the native window exists. Re-apply a few times.
+        for delay_ms in (0, 16, 50, 120, 200):
+            QTimer.singleShot(delay_ms, self._center_over_parent_or_screen)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
+            QTimer.singleShot(0, self._center_over_parent_or_screen)
+
+    def _center_over_parent_or_screen(self):
+        if not self.isVisible():
+            return
+        center_point = None
+        parent = self.parentWidget()
+        if parent is not None:
+            top = parent.window()
+            if top is not None and top.isVisible():
+                frame_top = top.frameGeometry()
+                if frame_top.width() >= 200 and frame_top.height() >= 200:
+                    center_point = frame_top.center()
+        if center_point is None:
+            screen = None
+            if parent is not None:
+                ref = parent.mapToGlobal(parent.rect().center())
+                screen = QGuiApplication.screenAt(ref)
+            if screen is None:
+                screen = QGuiApplication.primaryScreen()
+            if screen is None:
+                return
+            center_point = screen.availableGeometry().center()
+        frame = self.frameGeometry()
+        frame.moveCenter(center_point)
+        self.move(frame.topLeft())
 
     def set_missing_state(self, missing_files, folder, download_enabled=True):
         self._downloading = False

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.i18n import get_texts
-from ui.layout import WINDOW_SIZES, message_dialog_min_width
+from ui.widgets.layout import WINDOW_SIZES, message_dialog_min_width
 
 from .common import dialog_palette
 

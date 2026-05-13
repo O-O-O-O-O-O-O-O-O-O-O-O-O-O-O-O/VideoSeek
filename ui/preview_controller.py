@@ -117,11 +117,15 @@ class PreviewController:
 
     def export_clip(self, video_path, start_sec, output_path, end_sec=None):
         clip_start, clip_duration = self.resolve_clip_window(video_path, start_sec, end_sec=end_sec)
-        return export_original_clip(video_path, clip_start, clip_duration, output_path)
+        silent = bool(load_config().get("export_video_silent", False))
+        return export_original_clip(video_path, clip_start, clip_duration, output_path, silent=silent)
 
     def start_export_process(self, video_path, start_sec, output_path, end_sec=None):
         clip_start, clip_duration = self.resolve_clip_window(video_path, start_sec, end_sec=end_sec)
-        return start_export_original_clip_process(video_path, clip_start, clip_duration, output_path)
+        silent = bool(load_config().get("export_video_silent", False))
+        return start_export_original_clip_process(
+            video_path, clip_start, clip_duration, output_path, silent=silent
+        )
 
     def cleanup_previous_preview(self):
         if not self.current_preview_path:

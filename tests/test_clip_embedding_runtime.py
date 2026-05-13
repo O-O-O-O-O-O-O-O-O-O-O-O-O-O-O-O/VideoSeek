@@ -34,7 +34,35 @@ sys.modules.setdefault("onnxruntime", onnxruntime_stub)
 from src.core import clip_embedding
 
 
+def _clip_schema_v2_config(**overrides):
+    prefer_gpu = overrides.pop("prefer_gpu", True)
+    cfg = {
+        "schema_version": 2,
+        "data_root": "D:/VideoSeekData",
+        "meta_file": "D:/VideoSeekData/meta.json",
+        "vector_dir": "D:/VideoSeekData/vector",
+        "index_dir": "D:/VideoSeekData/index",
+        "models": {
+            "active_profile": "clip_onnx_default",
+            "profiles": [
+                {
+                    "id": "clip_onnx_default",
+                    "provider": "clip_onnx",
+                    "runtime": {"prefer_gpu": prefer_gpu, "model_dir": "D:/models"},
+                }
+            ],
+        },
+    }
+    cfg.update(overrides)
+    return cfg
+
+
 class ClipEmbeddingRuntimeTests(unittest.TestCase):
+    def setUp(self):
+        clip_embedding.reset_engine()
+
+    def tearDown(self):
+        clip_embedding.reset_engine()
     def test_run_visual_batch_splits_failed_batch_until_single_frame(self):
         class FakeSession:
             def __init__(self):
@@ -218,8 +246,9 @@ class ClipEmbeddingRuntimeTests(unittest.TestCase):
         self.assertNotIn("probe_exception_message", payload["diagnostics"])
         self.assertEqual(payload["diagnostics"]["available_providers"], ["DmlExecutionProvider", "CPUExecutionProvider"])
 
+    @patch("src.core.clip_embedding.load_config", return_value=_clip_schema_v2_config())
     @patch("src.core.clip_embedding._run_gpu_runtime_probe_once", return_value={"ok": False, "issue": "directx", "detail": "probe crashed"})
-    def test_prepare_inference_runtime_falls_back_to_cpu_when_probe_fails(self, _mock_probe):
+    def test_prepare_inference_runtime_falls_back_to_cpu_when_probe_fails(self, _mock_probe, _mock_load_config):
         status = clip_embedding.prepare_inference_runtime(prefer_gpu=True)
 
         self.assertFalse(status["effective_prefer_gpu"])
@@ -227,15 +256,19 @@ class ClipEmbeddingRuntimeTests(unittest.TestCase):
         self.assertIn("probe crashed", status["warning"])
         self.assertEqual(status["diagnostics"], {})
 
+    @patch("src.core.clip_embedding.load_config", return_value=_clip_schema_v2_config())
     @patch("src.core.clip_embedding._run_gpu_runtime_probe_once", return_value={"ok": False, "issue": "unknown", "detail": "GPU runtime probe exited with code 1."})
-    def test_prepare_inference_runtime_falls_back_to_cpu_when_probe_issue_is_unknown(self, _mock_probe):
+    def test_prepare_inference_runtime_falls_back_to_cpu_when_probe_issue_is_unknown(self, _mock_probe, _mock_load_config):
         status = clip_embedding.prepare_inference_runtime(prefer_gpu=True)
 
         self.assertFalse(status["effective_prefer_gpu"])
         self.assertEqual(status["issue"], "unknown")
         self.assertIn("fell back to CPU", status["warning"])
 
-    @patch("src.core.clip_embedding.load_config", return_value={"prefer_gpu": True, "gpu_probe_unknown_keep_gpu": True})
+    @patch(
+        "src.core.clip_embedding.load_config",
+        return_value=_clip_schema_v2_config(gpu_probe_unknown_keep_gpu=True),
+    )
     @patch("src.core.clip_embedding._run_gpu_runtime_probe_once", return_value={"ok": False, "issue": "unknown", "detail": "GPU runtime probe exited with code 1."})
     def test_prepare_inference_runtime_keeps_gpu_for_unknown_issue_when_opted_in(self, _mock_probe, _mock_load_config):
         status = clip_embedding.prepare_inference_runtime(prefer_gpu=True)
@@ -244,8 +277,9 @@ class ClipEmbeddingRuntimeTests(unittest.TestCase):
         self.assertEqual(status["issue"], "unknown")
         self.assertIn("inconclusive", status["warning"])
 
+    @patch("src.core.clip_embedding.load_config", return_value=_clip_schema_v2_config())
     @patch("src.core.clip_embedding._run_gpu_runtime_probe_once", return_value={"ok": False, "issue": "probe_timeout", "detail": "probe timed out", "diagnostics": {"failure_kind": "probe_timeout"}})
-    def test_prepare_inference_runtime_keeps_gpu_when_probe_is_inconclusive(self, _mock_probe):
+    def test_prepare_inference_runtime_keeps_gpu_when_probe_is_inconclusive(self, _mock_probe, _mock_load_config):
         status = clip_embedding.prepare_inference_runtime(prefer_gpu=True)
 
         self.assertTrue(status["effective_prefer_gpu"])
@@ -254,8 +288,9 @@ class ClipEmbeddingRuntimeTests(unittest.TestCase):
         self.assertIn("probe timed out", status["warning"])
         self.assertEqual(status["diagnostics"]["failure_kind"], "probe_timeout")
 
+    @patch("src.core.clip_embedding.load_config", return_value=_clip_schema_v2_config())
     @patch("src.core.clip_embedding._run_gpu_runtime_probe_once", return_value={"ok": True, "issue": "", "detail": ""})
-    def test_prepare_inference_runtime_keeps_gpu_when_probe_succeeds(self, _mock_probe):
+    def test_prepare_inference_runtime_keeps_gpu_when_probe_succeeds(self, _mock_probe, _mock_load_config):
         status = clip_embedding.prepare_inference_runtime(prefer_gpu=True)
 
         self.assertTrue(status["effective_prefer_gpu"])
@@ -295,15 +330,16 @@ class ClipEmbeddingRuntimeTests(unittest.TestCase):
 
         self.assertEqual(command, [os.path.abspath("D:/VideoSeek/VideoSeek.exe"), "--gpu-probe"])
 
+    @patch("src.core.clip_embedding.load_config", return_value=_clip_schema_v2_config())
     @patch("src.core.clip_embedding._run_isolated_gpu_probe", return_value={"ok": False, "issue": "directx", "detail": "broken"})
     @patch("builtins.print")
-    def test_gpu_probe_cli_main_returns_failure_exit_code(self, mock_print, _mock_probe):
+    def test_gpu_probe_cli_main_returns_failure_exit_code(self, mock_print, _mock_probe, _mock_load_config):
         exit_code = clip_embedding.gpu_probe_cli_main()
 
         self.assertEqual(exit_code, 1)
         mock_print.assert_called_once()
 
-    @patch("src.core.clip_embedding.load_config", return_value={"prefer_gpu": True})
+    @patch("src.core.clip_embedding.load_config", return_value=_clip_schema_v2_config())
     def test_get_engine_runtime_status_uses_probe_cache_before_engine_init(self, _mock_load_config):
         clip_embedding._GPU_PROBE_CACHE = {"ok": True, "issue": "", "detail": "", "diagnostics": {"active_providers": ["DmlExecutionProvider"]}}
         self.addCleanup(lambda: setattr(clip_embedding, "_GPU_PROBE_CACHE", None))
@@ -316,7 +352,7 @@ class ClipEmbeddingRuntimeTests(unittest.TestCase):
         self.assertEqual(status["backend"], "GPU")
         self.assertEqual(status["diagnostics"]["active_providers"], ["DmlExecutionProvider"])
 
-    @patch("src.core.clip_embedding.load_config", return_value={"prefer_gpu": True})
+    @patch("src.core.clip_embedding.load_config", return_value=_clip_schema_v2_config())
     def test_get_engine_runtime_status_keeps_gpu_for_inconclusive_probe_cache(self, _mock_load_config):
         clip_embedding._GPU_PROBE_CACHE = {"ok": False, "issue": "probe_timeout", "detail": "probe timed out", "diagnostics": {"failure_kind": "probe_timeout"}}
         self.addCleanup(lambda: setattr(clip_embedding, "_GPU_PROBE_CACHE", None))
@@ -331,7 +367,7 @@ class ClipEmbeddingRuntimeTests(unittest.TestCase):
         self.assertIn("inconclusive", status["warning"])
         self.assertEqual(status["diagnostics"]["failure_kind"], "probe_timeout")
 
-    @patch("src.core.clip_embedding.load_config", return_value={"prefer_gpu": False})
+    @patch("src.core.clip_embedding.load_config", return_value=_clip_schema_v2_config(prefer_gpu=False))
     def test_get_engine_runtime_status_reports_cpu_when_gpu_disabled(self, _mock_load_config):
         self.addCleanup(lambda: setattr(clip_embedding, "engine", None))
         clip_embedding.engine = None

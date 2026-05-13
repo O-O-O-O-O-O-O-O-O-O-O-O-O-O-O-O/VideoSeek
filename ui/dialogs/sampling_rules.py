@@ -18,7 +18,7 @@ from src.utils import (
     validate_sampling_fps_rules,
     validate_sampling_fps_rules_full_coverage,
 )
-from ui.layout import WINDOW_SIZES, apply_dialog_size
+from ui.widgets.layout import WINDOW_SIZES, apply_dialog_size
 
 from .app_message import AppMessageDialog
 from .common import dialog_palette
@@ -52,14 +52,20 @@ class SamplingRulesDialog(QDialog):
                 gridline-color: {palette['border']};
                 alternate-background-color: {"#202a3b" if is_dark else "#f7f9fd"};
             }}
-            QTableWidget::item {{ padding: 6px 8px; }}
+            QTableWidget::item {{
+                padding: 6px 8px;
+                border: none;
+                border-bottom: 1px solid {palette['border']};
+            }}
             QTableWidget::item:hover {{
                 background: {"#2a3a57" if is_dark else "#eef4ff"};
                 color: {palette['text']};
+                border-bottom: 1px solid {palette['border']};
             }}
             QTableWidget::item:selected {{
                 background: {"#35507c" if is_dark else "#dce8ff"};
                 color: {palette['text']};
+                border-bottom: 1px solid {palette['border']};
             }}
             QTableWidget QLineEdit {{
                 background: {palette['card']};

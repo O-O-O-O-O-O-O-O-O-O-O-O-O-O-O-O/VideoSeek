@@ -380,13 +380,13 @@ def create_preview_clip(input_path, start_sec, output_path, duration_sec=None):
     return subprocess.run(cmd, startupinfo=startupinfo, capture_output=True)
 
 
-def export_original_clip(input_path, start_sec, duration_sec, output_path):
-    cmd = build_export_original_clip_command(input_path, start_sec, duration_sec, output_path)
+def export_original_clip(input_path, start_sec, duration_sec, output_path, *, silent=False):
+    cmd = build_export_original_clip_command(input_path, start_sec, duration_sec, output_path, silent=silent)
     return subprocess.run(cmd, startupinfo=_build_hidden_startupinfo(), capture_output=True)
 
 
-def start_export_original_clip_process(input_path, start_sec, duration_sec, output_path):
-    cmd = build_export_original_clip_command(input_path, start_sec, duration_sec, output_path)
+def start_export_original_clip_process(input_path, start_sec, duration_sec, output_path, *, silent=False):
+    cmd = build_export_original_clip_command(input_path, start_sec, duration_sec, output_path, silent=silent)
     return subprocess.Popen(
         cmd,
         startupinfo=_build_hidden_startupinfo(),
@@ -395,12 +395,13 @@ def start_export_original_clip_process(input_path, start_sec, duration_sec, outp
     )
 
 
-def build_export_original_clip_command(input_path, start_sec, duration_sec, output_path):
+def build_export_original_clip_command(input_path, start_sec, duration_sec, output_path, *, silent=False):
     ffmpeg = get_ffmpeg_path()
     input_path = os.fspath(input_path)
     output_path = os.fspath(output_path)
     start_sec = max(0.0, float(start_sec))
     duration_sec = max(0.1, float(duration_sec))
+    silent = bool(silent)
 
     ensure_folder_exists(output_path)
     if os.path.exists(output_path):
@@ -409,7 +410,7 @@ def build_export_original_clip_command(input_path, start_sec, duration_sec, outp
         except OSError:
             pass
 
-    return [
+    cmd = [
         ffmpeg,
         "-y",
         "-ss",
@@ -420,8 +421,6 @@ def build_export_original_clip_command(input_path, start_sec, duration_sec, outp
         f"{duration_sec:.3f}",
         "-map",
         "0:v:0",
-        "-map",
-        "0:a?",
         "-c:v",
         "libx264",
         "-preset",
@@ -430,14 +429,24 @@ def build_export_original_clip_command(input_path, start_sec, duration_sec, outp
         "18",
         "-pix_fmt",
         "yuv420p",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        "-movflags",
-        "+faststart",
-        output_path,
     ]
+    if silent:
+        cmd.extend(["-an", "-movflags", "+faststart", output_path])
+    else:
+        cmd.extend(
+            [
+                "-map",
+                "0:a?",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-movflags",
+                "+faststart",
+                output_path,
+            ]
+        )
+    return cmd
 
 
 def _build_hidden_startupinfo():

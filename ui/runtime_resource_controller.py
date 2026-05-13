@@ -1,4 +1,5 @@
 from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import QApplication
 
 from src.app.i18n import get_texts
 from src.services.runtime_resource_service import (
@@ -24,6 +25,13 @@ class RuntimeResourceController(QObject):
         self._dialog_theme = None
         self._dialog_language = None
 
+    def _exec_runtime_resource_dialog(self, dialog):
+        # Flush pending resize/move on the main window so the first modal placement matches later opens.
+        app = QApplication.instance()
+        if app is not None:
+            app.processEvents()
+        dialog.exec()
+
     def check_resources(self, show_dialog=True):
         status = get_runtime_resource_status()
         self.status_changed.emit(status)
@@ -48,7 +56,7 @@ class RuntimeResourceController(QObject):
             ),
             download_enabled=status["download_enabled"],
         )
-        dialog.exec()
+        self._exec_runtime_resource_dialog(dialog)
 
     def show_manage_dialog(self):
         status = get_runtime_resource_status()
@@ -65,7 +73,7 @@ class RuntimeResourceController(QObject):
                 ),
                 download_enabled=status["download_enabled"],
             )
-        dialog.exec()
+        self._exec_runtime_resource_dialog(dialog)
 
     def start_download(self):
         if self.worker and self.worker.isRunning():

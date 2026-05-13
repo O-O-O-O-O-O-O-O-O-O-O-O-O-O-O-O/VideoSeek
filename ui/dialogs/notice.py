@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.i18n import get_texts
-from ui.layout import WINDOW_SIZES, apply_dialog_size
+from ui.widgets.layout import WINDOW_SIZES, apply_dialog_size
 
 from .common import dialog_palette
 

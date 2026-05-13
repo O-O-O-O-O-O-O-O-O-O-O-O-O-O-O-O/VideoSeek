@@ -107,22 +107,30 @@ class ResourceTableDialog(QDialog):
                 selection-color: {palette['text']};
                 outline: none;
             }}
-            QTableWidget::item {{ padding: 6px 8px; }}
+            QTableWidget::item {{
+                padding: 6px 8px;
+                border: none;
+                border-bottom: 1px solid {palette['border']};
+            }}
             QTableWidget::item:hover {{
                 background: transparent;
                 color: {palette['text']};
+                border-bottom: 1px solid {palette['border']};
             }}
             QTableWidget::item:selected {{
                 background: {"#314664" if is_dark else "#dfeaf8"};
                 color: {palette['text']};
+                border-bottom: 1px solid {palette['border']};
             }}
             QTableWidget::item:selected:active {{
                 background: {"#395274" if is_dark else "#d3e3f7"};
                 color: {palette['text']};
+                border-bottom: 1px solid {palette['border']};
             }}
             QTableWidget::item:selected:!active {{
                 background: {"#2b3d57" if is_dark else "#e6eef9"};
                 color: {palette['text']};
+                border-bottom: 1px solid {palette['border']};
             }}
             QHeaderView::section {{
                 color: {palette['muted']};

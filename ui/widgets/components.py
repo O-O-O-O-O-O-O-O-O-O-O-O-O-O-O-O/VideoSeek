@@ -1,8 +1,7 @@
-from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtCore import QEvent, QPoint, QTimer, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
-    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -14,7 +13,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
-    QRadioButton,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
@@ -22,12 +20,12 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QTableWidget,
     QTableWidgetItem,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from ui.layout import COMPONENT_SIZES
+from ui.widgets.layout import COMPONENT_SIZES
+from ui.widgets.remix_scope_tree import RemixScopeTreeWidget
 
 
 def _fallback_text(texts, key, zh_text, en_text):
@@ -105,6 +103,52 @@ class ClickableLabel(QLabel):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton and callable(self._click_handler) and self.rect().contains(event.position().toPoint()):
             self._click_handler()
+        super().mouseReleaseEvent(event)
+
+
+class RemixDisclosureHeader(QWidget):
+    """Single-row disclosure header: chevron + title, entire row toggles expand/collapse."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("RemixDisclosureHeader")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._toggle = None
+        self._expanded = False
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(2, 4, 2, 4)
+        lay.setSpacing(10)
+
+        self._chevron = QLabel()
+        self._chevron.setObjectName("RemixDisclosureChevron")
+        self._chevron.setFixedWidth(22)
+        self._chevron.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._chevron.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+        self.title_label = QLabel()
+        self.title_label.setObjectName("CardTitle")
+        self.title_label.setWordWrap(False)
+        self.title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+        lay.addWidget(self._chevron, 0, Qt.AlignmentFlag.AlignVCenter)
+        lay.addWidget(self.title_label, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+        self.set_expanded(False)
+
+    def set_toggle_handler(self, handler):
+        self._toggle = handler
+
+    def set_expanded(self, expanded: bool):
+        self._expanded = bool(expanded)
+        # Collapsed: ▶ (closed); expanded: ▼ (content below), same idiom as tree / Finder.
+        self._chevron.setText("\u25bc" if self._expanded else "\u25b6")
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
+            if callable(self._toggle):
+                self._toggle()
         super().mouseReleaseEvent(event)
 
 
@@ -597,21 +641,42 @@ class LibraryPage(QWidget):
         table_layout.setSpacing(10)
         self.table_title = QLabel()
         self.table_title.setObjectName("CardTitle")
-        self.lib_table = QTableWidget(0, 4)
-        self.lib_table.setObjectName("LibTable")
-        self.lib_table.verticalHeader().setVisible(False)
-        self.lib_table.setSelectionMode(QAbstractItemView.NoSelection)
-        self.lib_table.setFocusPolicy(Qt.NoFocus)
-        self.lib_table.setColumnWidth(0, 42)
-        self.lib_table.setColumnWidth(2, 90)
-        self.lib_table.setColumnWidth(3, 206)
-        self.lib_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
-        self.lib_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.lib_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
-        self.lib_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
-        self.lib_table.verticalHeader().setDefaultSectionSize(42)
+        self.library_column_header = QFrame()
+        self.library_column_header.setObjectName("LibraryListColumnHeader")
+        header_row = QHBoxLayout(self.library_column_header)
+        header_row.setContentsMargins(16, 0, 16, 8)
+        header_row.setSpacing(14)
+        self.library_column_header_labels = []
+        for spec in (
+            ("index", 40, 0),
+            ("path", 0, 1),
+            ("state", 100, 0),
+            ("actions", 200, 0),
+        ):
+            _, min_w, stretch = spec
+            cell = QLabel("")
+            cell.setObjectName("LibraryListHeaderCell")
+            cell.setAlignment(Qt.AlignCenter)
+            if min_w:
+                cell.setMinimumWidth(min_w)
+            self.library_column_header_labels.append(cell)
+            header_row.addWidget(cell, stretch)
+        self.library_scroll = QScrollArea()
+        self.library_scroll.setObjectName("LibraryListScroll")
+        self.library_scroll.setWidgetResizable(True)
+        self.library_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.library_scroll.setFrameShape(QFrame.NoFrame)
+        self.library_scroll.setMinimumHeight(300)
+        self.library_list = QWidget()
+        self.library_list.setObjectName("LibraryListHost")
+        _list_layout = QVBoxLayout(self.library_list)
+        _list_layout.setContentsMargins(0, 0, 0, 0)
+        _list_layout.setSpacing(10)
+        self.library_list._column_headers = self.library_column_header_labels
+        self.library_scroll.setWidget(self.library_list)
         table_layout.addWidget(self.table_title)
-        table_layout.addWidget(self.lib_table)
+        table_layout.addWidget(self.library_column_header)
+        table_layout.addWidget(self.library_scroll, 1)
         root.addWidget(self.table_card, 1)
 
 
@@ -836,88 +901,132 @@ class RemixMatchPage(QWidget):
         self.mix_hint = QLabel()
         self.mix_hint.setObjectName("CardHint")
         self.mix_hint.setWordWrap(True)
-        mix_row = QHBoxLayout()
-        mix_row.setSpacing(8)
+        self.mix_path_frame = QFrame()
+        self.mix_path_frame.setObjectName("RemixMixPathRow")
+        mix_inner = QHBoxLayout(self.mix_path_frame)
+        mix_inner.setContentsMargins(0, 0, 0, 0)
+        mix_inner.setSpacing(0)
         self.input_mix_path = QLineEdit()
-        self.input_mix_path.setObjectName("SearchInput")
+        self.input_mix_path.setObjectName("RemixMixPathEdit")
+        self.input_mix_path.setFrame(False)
+        self.input_mix_path.setClearButtonEnabled(True)
+        self.input_mix_path.setMinimumHeight(42)
         self.btn_browse_mix = QPushButton()
-        self.btn_browse_mix.setObjectName("AccentGhostButton")
-        self.btn_browse_mix.setMinimumWidth(100)
-        mix_row.addWidget(self.input_mix_path, 1)
-        mix_row.addWidget(self.btn_browse_mix, 0)
+        self.btn_browse_mix.setObjectName("RemixMixBrowseBtn")
+        self.btn_browse_mix.setMinimumWidth(108)
+        self.btn_browse_mix.setMinimumHeight(42)
+        self.btn_browse_mix.setCursor(Qt.CursorShape.PointingHandCursor)
+        mix_inner.addWidget(self.input_mix_path, 1)
+        mix_inner.addWidget(self.btn_browse_mix, 0)
 
-        self.section_params_title = QLabel()
-        self.section_params_title.setObjectName("CardTitle")
+        self.params_disclosure = RemixDisclosureHeader()
+        self.params_disclosure.set_toggle_handler(self._toggle_remix_params_visible)
+        self.section_params_title = self.params_disclosure.title_label
+        self._remix_params_expanded = False
+
+        self._remix_param_popup = SettingDetailPopup(is_dark=True)
+        self._remix_param_bindings: list = []
+        app_inst = QApplication.instance()
+        if app_inst is not None:
+            app_inst.installEventFilter(self._remix_param_popup)
 
         params = QGridLayout()
         params.setHorizontalSpacing(14)
-        params.setVerticalSpacing(10)
-        params.setColumnStretch(4, 1)
-        self.lbl_sample_fps = QLabel()
-        self.lbl_sample_fps.setObjectName("CardHint")
+        params.setVerticalSpacing(4)
+        params.setColumnMinimumWidth(0, 220)
+        params.setColumnStretch(1, 1)
+
+        def bind_lbl(lbl: ClickableLabel, hint: QLabel):
+            hint.setVisible(False)
+            self._remix_param_bindings.append((lbl, hint))
+            lbl.setWordWrap(True)
+            lbl.set_click_handler(lambda _l=lbl, h=hint: self._activate_remix_param_detail(_l, h))
+
+        self.lbl_sample_fps = ClickableLabel()
+        self.hint_sample_fps = QLabel()
+        bind_lbl(self.lbl_sample_fps, self.hint_sample_fps)
         self.input_sample_fps = NoWheelDoubleSpinBox()
         self.input_sample_fps.setRange(0.1, 12.0)
         self.input_sample_fps.setDecimals(2)
         self.input_sample_fps.setSingleStep(0.1)
-        self.input_sample_fps.setValue(1.0)
-        self.lbl_score = QLabel()
-        self.lbl_score.setObjectName("CardHint")
+        self.input_sample_fps.setValue(2.0)
+
+        self.lbl_score = ClickableLabel()
+        self.hint_score = QLabel()
+        bind_lbl(self.lbl_score, self.hint_score)
         self.input_score_threshold = NoWheelDoubleSpinBox()
         self.input_score_threshold.setRange(0.05, 0.99)
         self.input_score_threshold.setDecimals(2)
         self.input_score_threshold.setSingleStep(0.02)
         self.input_score_threshold.setValue(0.26)
-        self.lbl_gap = QLabel()
-        self.lbl_gap.setObjectName("CardHint")
+
+        self.lbl_gap = ClickableLabel()
+        self.hint_gap = QLabel()
+        bind_lbl(self.lbl_gap, self.hint_gap)
         self.input_merge_gap = NoWheelDoubleSpinBox()
         self.input_merge_gap.setRange(0.2, 30.0)
         self.input_merge_gap.setDecimals(1)
         self.input_merge_gap.setSingleStep(0.5)
         self.input_merge_gap.setValue(2.5)
-        self.lbl_min_seg = QLabel()
-        self.lbl_min_seg.setObjectName("CardHint")
+
+        self.lbl_min_seg = ClickableLabel()
+        self.hint_min_seg = QLabel()
+        bind_lbl(self.lbl_min_seg, self.hint_min_seg)
         self.input_min_segment = NoWheelDoubleSpinBox()
         self.input_min_segment.setRange(0.0, 120.0)
         self.input_min_segment.setDecimals(1)
         self.input_min_segment.setSingleStep(0.5)
         self.input_min_segment.setValue(1.5)
-        self.lbl_remix_cluster = QLabel()
-        self.lbl_remix_cluster.setObjectName("CardHint")
+
+        self.lbl_remix_cluster = ClickableLabel()
+        self.hint_remix_cluster = QLabel()
+        bind_lbl(self.lbl_remix_cluster, self.hint_remix_cluster)
         self.input_remix_cluster_gap = NoWheelDoubleSpinBox()
         self.input_remix_cluster_gap.setRange(0.1, 90.0)
         self.input_remix_cluster_gap.setDecimals(1)
         self.input_remix_cluster_gap.setSingleStep(0.5)
         self.input_remix_cluster_gap.setValue(2.5)
-        self.lbl_faiss_top_k = QLabel()
-        self.lbl_faiss_top_k.setObjectName("CardHint")
+
+        self.lbl_faiss_top_k = ClickableLabel()
+        self.hint_faiss_top_k = QLabel()
+        bind_lbl(self.lbl_faiss_top_k, self.hint_faiss_top_k)
         self.input_faiss_top_k = NoWheelSpinBox()
         self.input_faiss_top_k.setRange(1, 200)
         self.input_faiss_top_k.setValue(48)
-        self.lbl_speed_min = QLabel()
-        self.lbl_speed_min.setObjectName("CardHint")
+
+        self.lbl_speed_min = ClickableLabel()
+        self.hint_speed_min = QLabel()
+        bind_lbl(self.lbl_speed_min, self.hint_speed_min)
         self.input_speed_min = NoWheelDoubleSpinBox()
         self.input_speed_min.setRange(0.05, 3.0)
         self.input_speed_min.setDecimals(2)
         self.input_speed_min.setSingleStep(0.05)
         self.input_speed_min.setValue(0.25)
-        self.lbl_speed_max = QLabel()
-        self.lbl_speed_max.setObjectName("CardHint")
+
+        self.lbl_speed_max = ClickableLabel()
+        self.hint_speed_max = QLabel()
+        bind_lbl(self.lbl_speed_max, self.hint_speed_max)
         self.input_speed_max = NoWheelDoubleSpinBox()
         self.input_speed_max.setRange(0.5, 12.0)
         self.input_speed_max.setDecimals(2)
         self.input_speed_max.setSingleStep(0.1)
         self.input_speed_max.setValue(4.0)
-        self.lbl_ransac_iters = QLabel()
-        self.lbl_ransac_iters.setObjectName("CardHint")
+
+        self.lbl_ransac_iters = ClickableLabel()
+        self.hint_ransac_iters = QLabel()
+        bind_lbl(self.lbl_ransac_iters, self.hint_ransac_iters)
         self.input_ransac_iters = NoWheelSpinBox()
         self.input_ransac_iters.setRange(32, 8000)
         self.input_ransac_iters.setSingleStep(32)
         self.input_ransac_iters.setValue(384)
-        self.lbl_min_line_pts = QLabel()
-        self.lbl_min_line_pts.setObjectName("CardHint")
+
+        self.lbl_min_line_pts = ClickableLabel()
+        self.hint_min_line_pts = QLabel()
+        bind_lbl(self.lbl_min_line_pts, self.hint_min_line_pts)
         self.input_min_line_points = NoWheelSpinBox()
         self.input_min_line_points.setRange(2, 60)
         self.input_min_line_points.setValue(2)
+
         for spin in (
             self.input_sample_fps,
             self.input_score_threshold,
@@ -931,54 +1040,63 @@ class RemixMatchPage(QWidget):
             self.input_min_line_points,
         ):
             spin.setMinimumWidth(spin_w)
-        params.addWidget(self.lbl_sample_fps, 0, 0)
-        params.addWidget(self.input_sample_fps, 0, 1)
-        params.addWidget(self.lbl_score, 0, 2)
-        params.addWidget(self.input_score_threshold, 0, 3)
-        params.addWidget(self.lbl_gap, 1, 0)
-        params.addWidget(self.input_merge_gap, 1, 1)
-        params.addWidget(self.lbl_min_seg, 1, 2)
-        params.addWidget(self.input_min_segment, 1, 3)
-        params.addWidget(self.lbl_remix_cluster, 2, 0)
-        params.addWidget(self.input_remix_cluster_gap, 2, 1)
-        params.addWidget(self.lbl_faiss_top_k, 2, 2)
-        params.addWidget(self.input_faiss_top_k, 2, 3)
-        params.addWidget(self.lbl_speed_min, 3, 0)
-        params.addWidget(self.input_speed_min, 3, 1)
-        params.addWidget(self.lbl_speed_max, 3, 2)
-        params.addWidget(self.input_speed_max, 3, 3)
-        params.addWidget(self.lbl_ransac_iters, 4, 0)
-        params.addWidget(self.input_ransac_iters, 4, 1)
-        params.addWidget(self.lbl_min_line_pts, 4, 2)
-        params.addWidget(self.input_min_line_points, 4, 3)
 
-        self.remix_params_guide = QLabel()
-        self.remix_params_guide.setObjectName("CardHint")
-        self.remix_params_guide.setWordWrap(True)
-        self.remix_params_guide.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        pr = 0
+        params.addWidget(self.lbl_sample_fps, pr, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        params.addWidget(self.input_sample_fps, pr, 1)
+        pr += 1
+        params.addWidget(self.lbl_score, pr, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        params.addWidget(self.input_score_threshold, pr, 1)
+        pr += 1
+        params.addWidget(self.lbl_gap, pr, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        params.addWidget(self.input_merge_gap, pr, 1)
+        pr += 1
+        params.addWidget(self.lbl_min_seg, pr, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        params.addWidget(self.input_min_segment, pr, 1)
+        pr += 1
+        params.addWidget(self.lbl_remix_cluster, pr, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        params.addWidget(self.input_remix_cluster_gap, pr, 1)
+        pr += 1
+        params.addWidget(self.lbl_faiss_top_k, pr, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        params.addWidget(self.input_faiss_top_k, pr, 1)
+        pr += 1
+        params.addWidget(self.lbl_speed_min, pr, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        params.addWidget(self.input_speed_min, pr, 1)
+        pr += 1
+        params.addWidget(self.lbl_speed_max, pr, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        params.addWidget(self.input_speed_max, pr, 1)
+        pr += 1
+        params.addWidget(self.lbl_ransac_iters, pr, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        params.addWidget(self.input_ransac_iters, pr, 1)
+        pr += 1
+        params.addWidget(self.lbl_min_line_pts, pr, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        params.addWidget(self.input_min_line_points, pr, 1)
+
+        self.remix_params_short_hint = QLabel()
+        self.remix_params_short_hint.setObjectName("CardHint")
+        self.remix_params_short_hint.setWordWrap(True)
         self.btn_open_remix_cache = QPushButton()
         self.btn_open_remix_cache.setObjectName("AccentGhostButton")
         self.btn_open_remix_cache.setMinimumWidth(120)
+        params_footer = QHBoxLayout()
+        params_footer.setSpacing(12)
+        params_footer.addWidget(self.remix_params_short_hint, 1)
+        params_footer.addWidget(self.btn_open_remix_cache, 0)
 
-        guide_panel = QFrame()
-        guide_panel.setObjectName("SubPanelCard")
-        guide_layout = QVBoxLayout(guide_panel)
-        guide_layout.setContentsMargins(14, 12, 14, 12)
-        guide_layout.setSpacing(10)
-        guide_layout.addWidget(self.remix_params_guide)
-        remix_cache_btn_row = QHBoxLayout()
-        remix_cache_btn_row.addStretch(1)
-        remix_cache_btn_row.addWidget(self.btn_open_remix_cache)
-        guide_layout.addLayout(remix_cache_btn_row)
+        self.remix_params_body = QWidget()
+        remix_params_body_layout = QVBoxLayout(self.remix_params_body)
+        remix_params_body_layout.setContentsMargins(0, 0, 0, 0)
+        remix_params_body_layout.setSpacing(12)
+        remix_params_body_layout.addLayout(params)
+        remix_params_body_layout.addLayout(params_footer)
 
         match_layout.addWidget(self.mix_label)
         match_layout.addWidget(self.mix_hint)
-        match_layout.addLayout(mix_row)
+        match_layout.addWidget(self.mix_path_frame)
         match_layout.addWidget(make_divider())
-        match_layout.addWidget(self.section_params_title)
-        match_layout.addLayout(params)
-        match_layout.addWidget(make_divider())
-        match_layout.addWidget(guide_panel)
+        match_layout.addWidget(self.params_disclosure)
+        match_layout.addWidget(self.remix_params_body)
+        self.remix_params_body.setVisible(False)
         root.addWidget(self.match_card)
 
         self.scope_card = QFrame()
@@ -987,21 +1105,13 @@ class RemixMatchPage(QWidget):
         scope_layout.setContentsMargins(18, 18, 18, 18)
         scope_layout.setSpacing(12)
 
-        self.scope_title = QLabel()
-        self.scope_title.setObjectName("CardTitle")
-        self.scope_group = QButtonGroup(self)
-        self.radio_scope_all = QRadioButton()
-        self.radio_scope_restricted = QRadioButton()
-        self.scope_group.addButton(self.radio_scope_all, 0)
-        self.scope_group.addButton(self.radio_scope_restricted, 1)
-        self.radio_scope_all.setChecked(True)
-        scope_radio_row = QHBoxLayout()
-        scope_radio_row.setSpacing(16)
-        scope_radio_row.addWidget(self.radio_scope_all)
-        scope_radio_row.addWidget(self.radio_scope_restricted)
-        scope_radio_row.addStretch(1)
+        self.scope_disclosure = RemixDisclosureHeader()
+        self.scope_disclosure.set_toggle_handler(self._toggle_scope_list_visible)
+        self.scope_title = self.scope_disclosure.title_label
+        self._scope_list_expanded = False
+
         self.scope_table_hint = QLabel()
-        self.scope_table_hint.setObjectName("CardHint")
+        self.scope_table_hint.setObjectName("RemixScopeHint")
         self.scope_table_hint.setWordWrap(True)
         scope_tool_row = QHBoxLayout()
         scope_tool_row.setSpacing(8)
@@ -1012,20 +1122,27 @@ class RemixMatchPage(QWidget):
         scope_tool_row.addWidget(self.btn_scope_all)
         scope_tool_row.addWidget(self.btn_scope_none)
         scope_tool_row.addStretch(1)
-        self.scope_table = QTableWidget(0, 3)
-        self.scope_table.setObjectName("LibTable")
-        self.scope_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.scope_table.verticalHeader().setVisible(False)
-        self.scope_table.setAlternatingRowColors(False)
-        self.scope_table.setShowGrid(False)
-        self.scope_table.setMinimumHeight(180)
-        self.scope_table.horizontalHeader().setStretchLastSection(False)
-        _ssh = self.scope_table.horizontalHeader()
-        _ssh.setSectionResizeMode(0, QHeaderView.Fixed)
-        _ssh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        _ssh.setSectionResizeMode(2, QHeaderView.Stretch)
-        self.scope_table.setColumnWidth(0, 64)
-        self.scope_table.verticalHeader().setDefaultSectionSize(44)
+        self.scope_tree = RemixScopeTreeWidget()
+        self.scope_tree.setObjectName("RemixScopeTree")
+        _scope_h = int(COMPONENT_SIZES.get("remix_scope_tree_min_height", 200))
+        self.scope_tree.setMinimumHeight(_scope_h)
+        self.scope_tree.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.scope_tree_wrap = QFrame()
+        self.scope_tree_wrap.setObjectName("SubPanelCard")
+        self.scope_tree_wrap.setMinimumHeight(_scope_h + 24)
+        self.scope_tree_wrap.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        _stw = QVBoxLayout(self.scope_tree_wrap)
+        _stw.setContentsMargins(12, 12, 12, 12)
+        _stw.setSpacing(0)
+        _stw.addWidget(self.scope_tree)
+
+        self.scope_list_body = QWidget()
+        scope_list_layout = QVBoxLayout(self.scope_list_body)
+        scope_list_layout.setContentsMargins(0, 0, 0, 0)
+        scope_list_layout.setSpacing(12)
+        scope_list_layout.addWidget(self.scope_table_hint)
+        scope_list_layout.addLayout(scope_tool_row)
+        scope_list_layout.addWidget(self.scope_tree_wrap, 1)
 
         action_row = QHBoxLayout()
         action_row.setSpacing(8)
@@ -1046,15 +1163,13 @@ class RemixMatchPage(QWidget):
         self.lbl_status.setObjectName("StatusLabel")
         self.lbl_status.setWordWrap(True)
 
-        scope_layout.addWidget(self.scope_title)
-        scope_layout.addLayout(scope_radio_row)
-        scope_layout.addWidget(self.scope_table_hint)
-        scope_layout.addLayout(scope_tool_row)
-        scope_layout.addWidget(self.scope_table)
+        scope_layout.addWidget(self.scope_disclosure)
+        scope_layout.addWidget(self.scope_list_body, 1)
+        self.scope_list_body.setVisible(False)
         scope_layout.addWidget(make_divider())
         scope_layout.addLayout(action_row)
         scope_layout.addWidget(self.lbl_status)
-        root.addWidget(self.scope_card)
+        root.addWidget(self.scope_card, 1)
 
         self.results_card = QFrame()
         self.results_card.setObjectName("PanelCard")
@@ -1069,6 +1184,77 @@ class RemixMatchPage(QWidget):
         results_layout.addWidget(self.results_title)
         results_layout.addWidget(self.result_table)
         root.addWidget(self.results_card, 1)
+
+    def _sync_remix_disclosure_headers(self):
+        self.params_disclosure.set_expanded(self._remix_params_expanded)
+        self.remix_params_body.setVisible(self._remix_params_expanded)
+        self.scope_disclosure.set_expanded(self._scope_list_expanded)
+        self.scope_list_body.setVisible(self._scope_list_expanded)
+        self.params_disclosure.setToolTip("")
+        self.scope_disclosure.setToolTip("")
+
+    def _toggle_scope_list_visible(self):
+        self._scope_list_expanded = not self._scope_list_expanded
+        self.scope_list_body.setVisible(self._scope_list_expanded)
+        self._sync_remix_disclosure_headers()
+        if self._scope_list_expanded:
+            QTimer.singleShot(0, self.scope_tree.reflow_all_lib_trees)
+
+    def _toggle_remix_params_visible(self):
+        self._remix_params_expanded = not self._remix_params_expanded
+        self.remix_params_body.setVisible(self._remix_params_expanded)
+        self._sync_remix_disclosure_headers()
+
+    def _activate_remix_param_detail(self, label: ClickableLabel, hint: QLabel):
+        body = hint.text().strip()
+        if not body:
+            return
+        for lbl, _ in self._remix_param_bindings:
+            lbl.setStyleSheet("font-weight: 700; color: #3b82f6;" if lbl is label else "")
+        self._remix_param_popup.set_dark_mode(getattr(self.window(), "is_dark_mode", True))
+        self._remix_param_popup.show_for_label(label, label.text().strip(), body)
+
+    def configure_remix_params(self, texts: dict):
+        for lbl, _ in self._remix_param_bindings:
+            lbl.setStyleSheet("")
+            lbl.setToolTip("")
+        self.remix_params_short_hint.setText(texts.get("remix_params_short_hint", ""))
+        self.lbl_sample_fps.setText(texts["remix_sample_fps"])
+        self.hint_sample_fps.setText(texts.get("remix_sample_fps_tip", ""))
+        self.lbl_score.setText(texts["remix_score_threshold"])
+        self.hint_score.setText(texts.get("remix_score_threshold_tip", ""))
+        self.lbl_gap.setText(texts["remix_merge_gap"])
+        self.hint_gap.setText(texts.get("remix_merge_gap_tip", ""))
+        self.lbl_min_seg.setText(texts["remix_min_segment"])
+        self.hint_min_seg.setText(texts.get("remix_min_segment_tip", ""))
+        self.lbl_remix_cluster.setText(texts["remix_cluster_gap"])
+        self.hint_remix_cluster.setText(texts.get("remix_cluster_gap_tip", ""))
+        self.lbl_faiss_top_k.setText(texts["remix_faiss_top_k"])
+        self.hint_faiss_top_k.setText(texts.get("remix_faiss_top_k_tip", ""))
+        self.lbl_speed_min.setText(texts["remix_speed_min"])
+        self.hint_speed_min.setText(texts.get("remix_speed_min_tip", ""))
+        self.lbl_speed_max.setText(texts["remix_speed_max"])
+        self.hint_speed_max.setText(texts.get("remix_speed_max_tip", ""))
+        self.lbl_ransac_iters.setText(texts["remix_ransac_iters"])
+        self.hint_ransac_iters.setText(texts.get("remix_ransac_iters_tip", ""))
+        self.lbl_min_line_pts.setText(texts["remix_min_line_points"])
+        self.hint_min_line_pts.setText(texts.get("remix_min_line_points_tip", ""))
+        self.btn_open_remix_cache.setText(texts.get("remix_open_cache_dir", texts.get("network_open_cache", "")))
+        self.btn_open_remix_cache.setToolTip("")
+        for spin in (
+            self.input_sample_fps,
+            self.input_score_threshold,
+            self.input_merge_gap,
+            self.input_min_segment,
+            self.input_remix_cluster_gap,
+            self.input_faiss_top_k,
+            self.input_speed_min,
+            self.input_speed_max,
+            self.input_ransac_iters,
+            self.input_min_line_points,
+        ):
+            spin.setToolTip("")
+        self._sync_remix_disclosure_headers()
 
 
 class SettingsPage(QWidget):
@@ -1182,6 +1368,7 @@ class SettingsPage(QWidget):
         self.input_prefer_gpu = NoWheelComboBox()
         self.input_gpu_probe_unknown_keep_gpu = NoWheelComboBox()
         self.input_auto_cleanup_missing_files = NoWheelComboBox()
+        self.input_export_video_silent = NoWheelComboBox()
         self.input_active_model_profile = NoWheelComboBox()
         self.btn_download_runtime_resources = QPushButton()
         self.btn_remove_model_profile = QPushButton()
@@ -1206,6 +1393,7 @@ class SettingsPage(QWidget):
         self.label_preview_height = ClickableLabel()
         self.label_thumb_width = ClickableLabel()
         self.label_thumb_height = ClickableLabel()
+        self.label_export_video_silent = ClickableLabel()
         self.label_remote_max_frames = ClickableLabel()
         self.label_embedding_batch_size = ClickableLabel()
         self.label_similarity_threshold = ClickableLabel()
@@ -1234,6 +1422,7 @@ class SettingsPage(QWidget):
         self.hint_preview_height = QLabel()
         self.hint_thumb_width = QLabel()
         self.hint_thumb_height = QLabel()
+        self.hint_export_video_silent = QLabel()
         self.hint_remote_max_frames = QLabel()
         self.hint_embedding_batch_size = QLabel()
         self.hint_similarity_threshold = QLabel()
@@ -1285,6 +1474,7 @@ class SettingsPage(QWidget):
         self._configure_setting_input(self.input_prefer_gpu, width=COMPONENT_SIZES["settings_input_width"] + 36)
         self._configure_setting_input(self.input_gpu_probe_unknown_keep_gpu, width=COMPONENT_SIZES["settings_input_width"] + 36)
         self._configure_setting_input(self.input_auto_cleanup_missing_files, width=COMPONENT_SIZES["settings_input_width"] + 36)
+        self._configure_setting_input(self.input_export_video_silent, width=COMPONENT_SIZES["settings_input_width"] + 36)
         self._configure_setting_input(self.input_active_model_profile, width=COMPONENT_SIZES["settings_input_width"] + 120)
         self.btn_download_runtime_resources.setObjectName("AccentGhostButton")
         self.btn_download_runtime_resources.setMinimumHeight(34)
@@ -1412,6 +1602,13 @@ class SettingsPage(QWidget):
         self._add_setting_row(self.section_preview_form, 2, self.label_preview_height, self.input_preview_height, self.hint_preview_height)
         self._add_setting_row(self.section_preview_form, 3, self.label_thumb_width, self.input_thumb_width, self.hint_thumb_width)
         self._add_setting_row(self.section_preview_form, 4, self.label_thumb_height, self.input_thumb_height, self.hint_thumb_height)
+        self._add_setting_row(
+            self.section_preview_form,
+            5,
+            self.label_export_video_silent,
+            self.input_export_video_silent,
+            self.hint_export_video_silent,
+        )
 
         self._add_setting_row(self.section_index_form, 0, self.label_embedding_batch_size, self.input_embedding_batch_size, self.hint_embedding_batch_size)
         self._add_setting_row(self.section_index_form, 1, self.label_similarity_threshold, self.input_similarity_threshold, self.hint_similarity_threshold)
@@ -1730,6 +1927,7 @@ class SettingsPage(QWidget):
         self.label_preview_height.setText(texts["setting_preview_height"])
         self.label_thumb_width.setText(texts["setting_thumb_width"])
         self.label_thumb_height.setText(texts["setting_thumb_height"])
+        self.label_export_video_silent.setText(texts["setting_export_video_silent"])
         self.label_remote_max_frames.setText(texts["setting_remote_max_frames"])
         self.label_embedding_batch_size.setText(texts["setting_embedding_batch_size"])
         self.label_similarity_threshold.setText(texts["setting_similarity_threshold"])
@@ -1774,6 +1972,14 @@ class SettingsPage(QWidget):
         restore_index = self.input_auto_cleanup_missing_files.findData(current_auto_cleanup_missing_files)
         self.input_auto_cleanup_missing_files.setCurrentIndex(0 if restore_index < 0 else restore_index)
         self.input_auto_cleanup_missing_files.blockSignals(False)
+        current_export_video_silent = self.input_export_video_silent.currentData()
+        self.input_export_video_silent.blockSignals(True)
+        self.input_export_video_silent.clear()
+        self.input_export_video_silent.addItem(texts["setting_export_video_silent_option_off"], False)
+        self.input_export_video_silent.addItem(texts["setting_export_video_silent_option_on"], True)
+        restore_index = self.input_export_video_silent.findData(current_export_video_silent)
+        self.input_export_video_silent.setCurrentIndex(0 if restore_index < 0 else restore_index)
+        self.input_export_video_silent.blockSignals(False)
         current_neighbor_rerank_enabled = self.input_frame_neighbor_rerank_enabled.currentData()
         self.input_frame_neighbor_rerank_enabled.blockSignals(True)
         self.input_frame_neighbor_rerank_enabled.clear()
@@ -1808,6 +2014,7 @@ class SettingsPage(QWidget):
         self.hint_preview_height.setText(texts["setting_preview_height_hint"])
         self.hint_thumb_width.setText(texts["setting_thumb_width_hint"])
         self.hint_thumb_height.setText(texts["setting_thumb_height_hint"])
+        self.hint_export_video_silent.setText(texts["setting_export_video_silent_hint"])
         self.hint_remote_max_frames.setText(texts["setting_remote_max_frames_hint"])
         self.hint_embedding_batch_size.setText(texts["setting_embedding_batch_size_hint"])
         self.hint_similarity_threshold.setText(texts["setting_similarity_threshold_hint"])
@@ -1852,6 +2059,7 @@ class SettingsPage(QWidget):
             self.label_preview_height,
             self.label_thumb_width,
             self.label_thumb_height,
+            self.label_export_video_silent,
             self.label_remote_max_frames,
             self.label_embedding_batch_size,
             self.label_similarity_threshold,
