@@ -64,6 +64,11 @@ class RemixMatchWorker(QThread):
         merge_gap_sec,
         min_segment_sec,
         remix_cluster_gap_sec,
+        faiss_top_k,
+        speed_min,
+        speed_max,
+        ransac_iterations,
+        min_line_points,
     ):
         super().__init__()
         self.mix_path = mix_path
@@ -73,6 +78,11 @@ class RemixMatchWorker(QThread):
         self.merge_gap_sec = float(merge_gap_sec)
         self.min_segment_sec = float(min_segment_sec)
         self.remix_cluster_gap_sec = float(remix_cluster_gap_sec)
+        self.faiss_top_k = int(faiss_top_k)
+        self.speed_min = float(speed_min)
+        self.speed_max = float(speed_max)
+        self.ransac_iterations = int(ransac_iterations)
+        self.min_line_points = int(min_line_points)
         self._stop_requested = False
 
     def stop(self):
@@ -95,6 +105,11 @@ class RemixMatchWorker(QThread):
                 merge_gap_sec=self.merge_gap_sec,
                 min_segment_sec=self.min_segment_sec,
                 remix_cluster_gap_sec=self.remix_cluster_gap_sec,
+                faiss_top_k=self.faiss_top_k,
+                speed_min=self.speed_min,
+                speed_max=self.speed_max,
+                ransac_iterations=self.ransac_iterations,
+                min_line_points=self.min_line_points,
                 progress_callback=on_progress,
                 should_stop=should_stop,
             )

@@ -87,12 +87,15 @@ QRadioButton::indicator:unchecked:hover {
     background: __TRACK__;
 }
 QRadioButton::indicator:checked {
-    border: 5px solid __ACCENT__;
-    background: __PANEL__;
+    width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    border: 2px solid __ACCENT_HOVER__;
+    background-color: __ACCENT__;
 }
 QRadioButton::indicator:checked:hover {
-    border-color: __ACCENT_HOVER__;
-    background: __PANEL__;
+    border: 2px solid __ACCENT__;
+    background-color: __ACCENT_HOVER__;
 }
 QRadioButton:disabled {
     color: __MUTED__;
@@ -544,28 +547,6 @@ QToolTip, QMessageBox, QDialog {
 QToolTip {
     max-width: 360px;
     padding: 6px 8px;
-}
-#RemixScopeCheck {
-    spacing: 0;
-}
-#RemixScopeCheck::indicator {
-    width: 20px;
-    height: 20px;
-    border-radius: 6px;
-    border: 1px solid __LINE_STRONG__;
-    background: __FIELD__;
-}
-#RemixScopeCheck::indicator:hover {
-    border-color: __ACCENT__;
-    background: __TRACK__;
-}
-#RemixScopeCheck::indicator:checked {
-    background: __ACCENT__;
-    border: 1px solid __ACCENT_HOVER__;
-}
-#RemixScopeCheck::indicator:checked:hover {
-    background: __ACCENT_HOVER__;
-    border: 1px solid __ACCENT_HOVER__;
 }
 """
 

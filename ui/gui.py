@@ -428,6 +428,21 @@ class MainWindow(QMainWindow):
         self.remix_page.lbl_remix_cluster.setText(t["remix_cluster_gap"])
         self.remix_page.lbl_remix_cluster.setToolTip(t.get("remix_cluster_gap_tip", ""))
         self.remix_page.input_remix_cluster_gap.setToolTip(t.get("remix_cluster_gap_tip", ""))
+        self.remix_page.lbl_faiss_top_k.setText(t["remix_faiss_top_k"])
+        self.remix_page.lbl_faiss_top_k.setToolTip(t.get("remix_faiss_top_k_tip", ""))
+        self.remix_page.input_faiss_top_k.setToolTip(t.get("remix_faiss_top_k_tip", ""))
+        self.remix_page.lbl_speed_min.setText(t["remix_speed_min"])
+        self.remix_page.lbl_speed_min.setToolTip(t.get("remix_speed_min_tip", ""))
+        self.remix_page.input_speed_min.setToolTip(t.get("remix_speed_min_tip", ""))
+        self.remix_page.lbl_speed_max.setText(t["remix_speed_max"])
+        self.remix_page.lbl_speed_max.setToolTip(t.get("remix_speed_max_tip", ""))
+        self.remix_page.input_speed_max.setToolTip(t.get("remix_speed_max_tip", ""))
+        self.remix_page.lbl_ransac_iters.setText(t["remix_ransac_iters"])
+        self.remix_page.lbl_ransac_iters.setToolTip(t.get("remix_ransac_iters_tip", ""))
+        self.remix_page.input_ransac_iters.setToolTip(t.get("remix_ransac_iters_tip", ""))
+        self.remix_page.lbl_min_line_pts.setText(t["remix_min_line_points"])
+        self.remix_page.lbl_min_line_pts.setToolTip(t.get("remix_min_line_points_tip", ""))
+        self.remix_page.input_min_line_points.setToolTip(t.get("remix_min_line_points_tip", ""))
         self.remix_page.remix_params_guide.setText(t.get("remix_params_guide", ""))
         self.remix_page.btn_open_remix_cache.setText(t.get("remix_open_cache_dir", t.get("network_open_cache", "")))
         self.remix_page.btn_open_remix_cache.setToolTip(t.get("remix_open_cache_dir_tip", ""))
@@ -441,7 +456,9 @@ class MainWindow(QMainWindow):
         self.remix_page.btn_stop.setText(t["remix_stop"])
         self.remix_page.btn_clear.setText(t["remix_clear"])
         self.remix_page.results_title.setText(t["remix_results_title"])
-        self.remix_page.result_table.setHorizontalHeaderLabels(t["remix_result_headers"])
+        rh = t["remix_result_headers"]
+        self.remix_page.result_table.setColumnCount(len(rh))
+        self.remix_page.result_table.setHorizontalHeaderLabels(rh)
 
         self.library_page.header.title.setText(t["library_page_title"])
         self.library_page.header.subtitle.setText(t["library_page_desc"])
@@ -1504,6 +1521,11 @@ class MainWindow(QMainWindow):
             self.remix_page.input_merge_gap.value(),
             self.remix_page.input_min_segment.value(),
             self.remix_page.input_remix_cluster_gap.value(),
+            self.remix_page.input_faiss_top_k.value(),
+            self.remix_page.input_speed_min.value(),
+            self.remix_page.input_speed_max.value(),
+            self.remix_page.input_ransac_iters.value(),
+            self.remix_page.input_min_line_points.value(),
         )
         self.remix_worker.result_ready.connect(self._on_remix_match_results)
         self.remix_worker.error_signal.connect(self._on_remix_match_error)
@@ -2482,6 +2504,7 @@ class MainWindow(QMainWindow):
         style = DARK_STYLE if self.is_dark_mode else LIGHT_STYLE
         app = QApplication.instance()
         if app:
+            app.setProperty("videoseek_is_dark", self.is_dark_mode)
             app.setStyleSheet(style)
         self.update()
         self.sidebar.btn_theme.setText(self.texts["theme_light"] if self.is_dark_mode else self.texts["theme_dark"])

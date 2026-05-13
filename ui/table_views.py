@@ -1,14 +1,16 @@
 import os
 import webbrowser
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QEvent, Qt, QRect
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
+    QHeaderView,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -18,6 +20,106 @@ from PySide6.QtWidgets import (
 from src.domain.remote_search_hit import coerce_remote_search_hit
 from src.domain.remix_search_hit import coerce_remix_search_hit
 from src.domain.search_hit import coerce_search_hit
+
+
+_SCOPE_CB_LIGHT = {
+    "field": QColor("#f7f9fd"),
+    "track": QColor("#dbe3ef"),
+    "line": QColor("#afbed8"),
+    "accent": QColor("#2f6df6"),
+    "accent_hover": QColor("#4a82fb"),
+}
+_SCOPE_CB_DARK = {
+    "field": QColor("#0f1a2b"),
+    "track": QColor("#22314a"),
+    "line": QColor("#40557f"),
+    "accent": QColor("#4e8cff"),
+    "accent_hover": QColor("#6ba0ff"),
+}
+
+
+def _remix_scope_cb_theme() -> dict:
+    app = QApplication.instance()
+    if app is not None and app.property("videoseek_is_dark"):
+        return _SCOPE_CB_DARK
+    return _SCOPE_CB_LIGHT
+
+
+class RemixScopeCheckBox(QCheckBox):
+    """Self-drawn box + tick (global QSS cannot rely on data: URLs for indicators on Windows)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("RemixScopeCheck")
+        self.setMouseTracking(True)
+        self.setFixedSize(24, 24)
+        self.stateChanged.connect(lambda _s: self.update())
+
+    def changeEvent(self, event):
+        if event.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange):
+            self.update()
+        tc = getattr(QEvent.Type, "ThemeChange", None)
+        if tc is not None and event.type() == tc:
+            self.update()
+        super().changeEvent(event)
+
+    def enterEvent(self, event):
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        with QPainter(self) as painter:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            theme = _remix_scope_cb_theme()
+            w, h = self.width(), self.height()
+            side = min(w, h, 26)
+            x = (w - side) // 2
+            y = (h - side) // 2
+            rect = QRect(x, y, side, side)
+            radius = max(5, int(side * 0.28))
+            hover = self.underMouse()
+            checked = self.isChecked()
+
+            if checked:
+                fill = theme["accent_hover"] if hover else theme["accent"]
+                border = theme["accent_hover"]
+            else:
+                fill = theme["track"] if hover else theme["field"]
+                border = theme["accent"] if hover else theme["line"]
+
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(fill)
+            painter.drawRoundedRect(rect, radius, radius)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(border, 1))
+            painter.drawRoundedRect(rect.adjusted(0, 0, -1, -1), radius, radius)
+
+            if checked:
+                pen = QPen(
+                    QColor("#ffffff"),
+                    max(1.8, side / 9.0),
+                    s=Qt.PenStyle.SolidLine,
+                    c=Qt.PenCapStyle.RoundCap,
+                    j=Qt.PenJoinStyle.RoundJoin,
+                )
+                painter.setPen(pen)
+                ix, iy, sw, sh = rect.x(), rect.y(), rect.width(), rect.height()
+                x1, y1 = ix + sw * 0.26, iy + sh * 0.52
+                x2, y2 = ix + sw * 0.42, iy + sh * 0.72
+                x3, y3 = ix + sw * 0.76, iy + sh * 0.30
+                painter.drawLine(round(x1), round(y1), round(x2), round(y2))
+                painter.drawLine(round(x2), round(y2), round(x3), round(y3))
+
+            if self.hasFocus():
+                painter.setPen(
+                    QPen(theme["accent"], 1.5, s=Qt.PenStyle.DashLine)
+                )
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRoundedRect(self.rect().adjusted(1, 1, -2, -2), 6, 6)
 
 
 def remix_scope_row_checkbox(table: QTableWidget, row: int) -> QCheckBox | None:
@@ -34,10 +136,10 @@ def remix_scope_row_checkbox(table: QTableWidget, row: int) -> QCheckBox | None:
 
 def build_remix_scope_checkbox_widget(video_path: str, *, checked: bool = True) -> tuple[QWidget, QCheckBox]:
     """Centered checkbox cell for remix scope table; returns (wrapper, checkbox)."""
-    cb = QCheckBox()
-    cb.setObjectName("RemixScopeCheck")
+    cb = RemixScopeCheckBox()
     cb.setProperty("video_path", video_path)
     cb.setChecked(checked)
+    cb.setAccessibleName(os.path.basename(video_path) or video_path)
     cb.setCursor(Qt.PointingHandCursor)
     cb.setFocusPolicy(Qt.StrongFocus)
     cb.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
@@ -149,6 +251,18 @@ def populate_result_table(table, results, on_preview, on_locate, on_export, text
 
 def populate_remix_result_table(table, results, remix_video_path, on_compare, on_locate, on_export, texts):
     table.setRowCount(0)
+    table.setColumnCount(8)
+    hdr = table.horizontalHeader()
+    for col in range(8):
+        hdr.setSectionResizeMode(col, QHeaderView.Fixed)
+    hdr.setSectionResizeMode(2, QHeaderView.Stretch)
+    table.setColumnWidth(0, 46)
+    table.setColumnWidth(1, 164)
+    table.setColumnWidth(3, 108)
+    table.setColumnWidth(4, 108)
+    table.setColumnWidth(5, 56)
+    table.setColumnWidth(6, 100)
+    table.setColumnWidth(7, 250)
     table.setHorizontalHeaderLabels(texts["remix_result_headers"])
     table.setUpdatesEnabled(False)
     remix_path = os.fspath(remix_video_path or "").strip()
@@ -161,6 +275,8 @@ def populate_remix_result_table(table, results, remix_video_path, on_compare, on
         video_path = hit.video_path
         remix_start = float(hit.remix_start_sec)
         remix_end = float(hit.remix_end_sec)
+        speed_k = float(getattr(hit, "speed_k", 1.0))
+        match_conf = float(getattr(hit, "match_confidence", 1.0))
         table.insertRow(row)
 
         order_item = QTableWidgetItem(str(row + 1))
@@ -175,6 +291,8 @@ def populate_remix_result_table(table, results, remix_video_path, on_compare, on
                 "remix_start_sec": remix_start,
                 "remix_end_sec": remix_end,
                 "remix_video_path": remix_path,
+                "speed_k": speed_k,
+                "match_confidence": match_conf,
             },
         )
         table.setItem(row, 0, order_item)
@@ -196,13 +314,25 @@ def populate_remix_result_table(table, results, remix_video_path, on_compare, on
         remix_time_item.setTextAlignment(Qt.AlignCenter)
         table.setItem(row, 4, remix_time_item)
 
-        score_item = QTableWidgetItem(f"{int(score * 100)}%")
-        score_item.setTextAlignment(Qt.AlignCenter)
-        table.setItem(row, 5, score_item)
+        speed_item = QTableWidgetItem(f"{speed_k:.2f}x")
+        speed_item.setTextAlignment(Qt.AlignCenter)
+        table.setItem(row, 5, speed_item)
+
+        match_item = QTableWidgetItem(f"{int(score * 100)}% · {int(match_conf * 100)}%")
+        match_item.setToolTip(
+            _fallback_text(
+                texts,
+                "remix_match_tooltip",
+                "相似度（CLIP 均值）· 线拟合置信度",
+                "CLIP mean · line-fit confidence",
+            )
+        )
+        match_item.setTextAlignment(Qt.AlignCenter)
+        table.setItem(row, 6, match_item)
 
         table.setCellWidget(
             row,
-            6,
+            7,
             _build_remix_result_actions(
                 remix_path,
                 remix_start,
