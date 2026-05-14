@@ -44,7 +44,7 @@ QWidget {
     font-size: 13px;
     font-weight: 500;
     selection-background-color: __ACCENT__;
-    selection-color: #ffffff;
+    selection-color: __INVERSE_TEXT__;
 }
 #RemixMixPathEdit:focus {
     background: __ACCENT_SOFT__;
@@ -224,7 +224,7 @@ QPushButton:disabled {
 #PrimaryButton {
     background: __ACCENT__;
     border-color: __ACCENT__;
-    color: white;
+    color: __INVERSE_TEXT__;
 }
 #PrimaryButton:hover {
     background: __ACCENT_HOVER__;
@@ -258,7 +258,7 @@ QPushButton:disabled {
 #SearchButton {
     background: __SUCCESS__;
     border-color: __SUCCESS__;
-    color: white;
+    color: __INVERSE_TEXT__;
     font-weight: 700;
 }
 #SearchButton:hover {
@@ -276,7 +276,7 @@ QPushButton:disabled {
     padding: 0;
     border-radius: 15px;
     border: 1px solid __LINE_STRONG__;
-    background: rgba(15, 23, 42, 0.05);
+    background: __TRACK__;
     color: __MUTED__;
     font-weight: 700;
     text-align: center;
@@ -302,18 +302,19 @@ QPushButton:disabled {
     background: __BUTTON_SOFT_HOVER__;
 }
 #MobileBridgeQrButton {
-    background: rgba(37, 99, 235, 0.12);
-    border-color: #60a5fa;
-    color: #1d4ed8;
+    background: __ACCENT_SOFT__;
+    border: 1px solid __ACCENT_HOVER__;
+    color: __ACCENT__;
     font-weight: 700;
 }
 #MobileBridgeQrButton:hover {
-    background: rgba(37, 99, 235, 0.2);
+    background: __BUTTON_SOFT_HOVER__;
+    border-color: __ACCENT__;
 }
 #MobileBridgeQrButton:disabled {
-    background: rgba(148, 163, 184, 0.12);
-    border-color: rgba(148, 163, 184, 0.3);
-    color: rgba(100, 116, 139, 0.78);
+    background: __FIELD__;
+    border: 1px solid __LINE__;
+    color: __MUTED__;
 }
 #LinkUtilityButton {
     background: __ACCENT_SOFT__;
@@ -611,6 +612,281 @@ QSpinBox[settingField="true"]::up-button, QDoubleSpinBox[settingField="true"]::u
     font-weight: 600;
     padding: 28px 16px;
 }
+/* --- Dialog & popup chrome (object names + theme tokens) --- */
+QFrame#Card, #DialogCard {
+    background: __PANEL__;
+    border: 1px solid __LINE__;
+    border-radius: 20px;
+}
+#ToolbarCard, #DetailsCard, #StatusCard, #PreviewCard {
+    background: __FIELD__;
+    border: 1px solid __LINE__;
+    border-radius: 14px;
+}
+#SummaryCard {
+    background: __FIELD__;
+    border: 1px solid __LINE__;
+    border-radius: 12px;
+    padding: 8px 10px;
+}
+#SummaryValue {
+    color: __HEADLINE__;
+    font-size: 16px;
+    font-weight: 800;
+    background: transparent;
+}
+#SummaryLabel {
+    color: __MUTED__;
+    font-size: 11px;
+    background: transparent;
+}
+#DialogHeroTitle {
+    font-size: 22px;
+    font-weight: 800;
+    color: __HEADLINE__;
+    background: transparent;
+}
+#DialogPageTitle {
+    font-size: 20px;
+    font-weight: 800;
+    color: __HEADLINE__;
+    background: transparent;
+}
+#DialogHeadline {
+    font-size: 24px;
+    font-weight: 800;
+    color: __HEADLINE__;
+    background: transparent;
+}
+#DialogSectionTitle {
+    font-size: 18px;
+    font-weight: 700;
+    color: __HEADLINE__;
+    background: transparent;
+}
+#DialogInlineTitle {
+    font-size: 14px;
+    font-weight: 700;
+    color: __HEADLINE__;
+    background: transparent;
+}
+#Hint {
+    color: __MUTED__;
+    font-size: 12px;
+    background: transparent;
+}
+#DialogMetaLabel {
+    color: __MUTED__;
+    font-size: 12px;
+    background: transparent;
+}
+#DialogBodyLabel {
+    color: __MUTED__;
+    font-size: 13px;
+    font-weight: 400;
+    background: transparent;
+    line-height: 1.45em;
+}
+#SectionTitle {
+    color: __HEADLINE__;
+    font-size: 13px;
+    font-weight: 700;
+    background: transparent;
+}
+#DialogBodyBrowser {
+    background: __FIELD__;
+    color: __MUTED__;
+    border: 1px solid __LINE__;
+    border-radius: 16px;
+    padding: 12px;
+    font-size: 13px;
+}
+#DialogCodeBox {
+    background: __FIELD__;
+    border: 1px solid __LINE__;
+    border-radius: 12px;
+    padding: 10px 12px;
+    color: __HEADLINE__;
+    font-weight: 600;
+}
+#DialogDivider {
+    color: __LINE__;
+    background: __LINE__;
+    border: none;
+    max-height: 1px;
+    min-height: 1px;
+    margin: 8px 0;
+}
+#DialogPlainBody {
+    background: __FIELD__;
+    color: __HEADLINE__;
+    border: 1px solid __LINE__;
+    border-radius: 10px;
+    padding: 10px;
+    font-family: Consolas, "Microsoft YaHei UI", monospace;
+    font-size: 12px;
+    selection-background-color: __ACCENT_SOFT__;
+    selection-color: __HEADLINE__;
+}
+#MessageBadge {
+    min-width: 34px;
+    max-width: 34px;
+    min-height: 34px;
+    max-height: 34px;
+    border-radius: 17px;
+    color: __INVERSE_TEXT__;
+    font-weight: 800;
+    background: __ACCENT__;
+}
+#MessageBadge[kind="success"] {
+    background: __SUCCESS__;
+}
+#MessageBadge[kind="warning"] {
+    background: __WARN__;
+    color: __HEADLINE__;
+}
+#MessageBadge[kind="error"] {
+    background: __DANGER__;
+}
+#ModelUploadArea {
+    text-align: center;
+    border: 2px dashed __LINE_STRONG__;
+    border-radius: 16px;
+    padding: 20px;
+    background: __PANEL__;
+    color: __HEADLINE__;
+    font-size: 14px;
+    font-weight: 600;
+    min-height: 96px;
+}
+#ModelUploadArea:hover {
+    border-color: __ACCENT__;
+    background: __FIELD__;
+}
+QListWidget#ModelFileList {
+    border: 1px solid __LINE__;
+    border-radius: 12px;
+    background: __PANEL__;
+    padding: 6px;
+    outline: 0;
+}
+QListWidget#ModelFileList::item {
+    padding: 8px 10px;
+    border-radius: 8px;
+    margin: 2px 0;
+    border: 1px solid transparent;
+}
+QListWidget#ModelFileList::item:hover {
+    background: __FIELD__;
+    border-color: __LINE__;
+}
+QListWidget#ModelFileList::item:selected {
+    background: __FIELD__;
+    color: __HEADLINE__;
+    border-color: __ACCENT__;
+}
+#SolidDangerButton {
+    background: __DANGER__;
+    border: 1px solid __DANGER__;
+    color: __INVERSE_TEXT__;
+    font-weight: 700;
+    border-radius: 10px;
+    padding: 10px 16px;
+}
+#DialogRulesTable, #ResourceDialogTable {
+    background: __FIELD__;
+    color: __HEADLINE__;
+    border: 1px solid __LINE__;
+    border-radius: 12px;
+    gridline-color: __LINE__;
+    alternate-background-color: __TRACK__;
+    outline: none;
+}
+#DialogRulesTable::item, #ResourceDialogTable::item {
+    padding: 6px 8px;
+    border: none;
+    border-bottom: 1px solid __LINE__;
+}
+#DialogRulesTable::item:hover, #ResourceDialogTable::item:hover {
+    background: __ACCENT_SOFT__;
+    color: __HEADLINE__;
+    border-bottom: 1px solid __LINE__;
+}
+#DialogRulesTable::item:selected, #ResourceDialogTable::item:selected {
+    background: __TRACK__;
+    color: __HEADLINE__;
+    border-bottom: 1px solid __LINE__;
+}
+#DialogRulesTable::item:selected:active, #ResourceDialogTable::item:selected:active {
+    background: __ACCENT_SOFT__;
+    border-bottom: 1px solid __LINE__;
+}
+#DialogRulesTable QLineEdit {
+    background: __FIELD__;
+    color: __HEADLINE__;
+    border: 1px solid __ACCENT__;
+    border-radius: 6px;
+    padding: 2px 6px;
+    selection-background-color: __ACCENT_SOFT__;
+    selection-color: __HEADLINE__;
+}
+#DialogRulesTable QHeaderView::section, #ResourceDialogTable QHeaderView::section {
+    color: __MUTED__;
+    background: __FIELD__;
+    border: none;
+    border-bottom: 1px solid __LINE__;
+    padding: 10px 8px;
+    font-weight: 700;
+}
+QDialog QCheckBox {
+    color: __MUTED__;
+    spacing: 6px;
+    background: transparent;
+}
+ClickableLabel[detailActive="true"] {
+    color: __ACCENT__;
+    font-weight: 700;
+}
+#StatusHint[state="error"] {
+    color: __DANGER__;
+}
+#LibraryCardStatus {
+    background: transparent;
+    border: none;
+    padding: 0 4px;
+    font-size: 13px;
+    font-weight: 600;
+}
+#LibraryCardStatus[libState="ready"] {
+    color: __SUCCESS__;
+}
+#LibraryCardStatus[libState="pending"] {
+    color: __WARN__;
+}
+#LibraryCardStatus[libState="partial"] {
+    color: __ACCENT__;
+}
+#LibraryCardStatus[libState="offline"] {
+    color: __MUTED__;
+}
+#SettingDetailPopup {
+    background: __PANEL__;
+    border: 1px solid __LINE_STRONG__;
+    border-radius: 12px;
+}
+#SettingDetailPopupTitle {
+    color: __HEADLINE__;
+    font-size: 13px;
+    font-weight: 700;
+    background: transparent;
+}
+#SettingDetailPopupBody {
+    color: __MUTED__;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.45em;
+    background: transparent;
+}
 #RemixScopeScroll {
     background: transparent;
     border: none;
@@ -790,7 +1066,7 @@ def build_style(colors):
     return style
 
 
-DARK_STYLE = build_style({
+THEME_COLORS_DARK = {
     "WINDOW": "#0b1220",
     "TEXT": "#d7deea",
     "HEADLINE": "#f5f8ff",
@@ -820,9 +1096,10 @@ DARK_STYLE = build_style({
     "NOTICE_BG": "#21365f",
     "NOTICE_LINE": "#5d87d6",
     "NOTICE_TEXT": "#eef4ff",
-})
+    "INVERSE_TEXT": "#ffffff",
+}
 
-LIGHT_STYLE = build_style({
+THEME_COLORS_LIGHT = {
     "WINDOW": "#f3f6fb",
     "TEXT": "#223047",
     "HEADLINE": "#121826",
@@ -852,4 +1129,22 @@ LIGHT_STYLE = build_style({
     "NOTICE_BG": "#e8f0ff",
     "NOTICE_LINE": "#7ca2f7",
     "NOTICE_TEXT": "#1a3f8a",
-})
+    "INVERSE_TEXT": "#ffffff",
+}
+
+DARK_STYLE = build_style(THEME_COLORS_DARK)
+LIGHT_STYLE = build_style(THEME_COLORS_LIGHT)
+
+
+def theme_color_map(is_dark: bool):
+    return THEME_COLORS_DARK if is_dark else THEME_COLORS_LIGHT
+
+
+def repolish_widget(widget):
+    """Re-apply the application stylesheet after changing dynamic Qt properties."""
+    if widget is None:
+        return
+    style = widget.style()
+    if style is not None:
+        style.unpolish(widget)
+        style.polish(widget)

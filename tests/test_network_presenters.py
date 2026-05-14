@@ -1,8 +1,8 @@
 import unittest
 
 from src.app.i18n import get_texts
-from ui.network_build_presenter import format_build_finished_status, format_build_progress_text
-from ui.network_precheck_presenter import build_precheck_dialog_payload
+from ui.presenters.network_build_presenter import format_build_finished_status, format_build_progress_text
+from ui.presenters.network_precheck_presenter import build_precheck_dialog_payload
 
 
 class NetworkPrecheckPresenterTests(unittest.TestCase):

@@ -1,15 +1,19 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTableWidgetItem
 
+from ui.widgets.styles import theme_color_map
+
 
 def dialog_palette(is_dark):
+    """Semantic colors aligned with `styles.THEME_COLORS_*` (for legacy callers)."""
+    c = theme_color_map(is_dark)
     return {
-        "bg": "#161c28" if is_dark else "#f3f6fb",
-        "card": "#1d2635" if is_dark else "#ffffff",
-        "text": "#f3f5f8" if is_dark else "#1d2430",
-        "muted": "#9aa6b7" if is_dark else "#617086",
-        "accent": "#4a86ff" if is_dark else "#3b6fd8",
-        "border": "#2d3950" if is_dark else "#d5ddea",
+        "bg": c["PANEL"],
+        "card": c["FIELD"],
+        "text": c["HEADLINE"],
+        "muted": c["MUTED"],
+        "accent": c["ACCENT"],
+        "border": c["LINE"],
     }
 
 
@@ -47,4 +51,3 @@ class SortableTableWidgetItem(QTableWidgetItem):
         if isinstance(other, SortableTableWidgetItem):
             return self._sort_key < other._sort_key
         return super().__lt__(other)
-

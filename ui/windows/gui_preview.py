@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog
 
 from src.utils import open_folder_in_explorer, open_in_explorer
 from ui.dialogs import ResourceTableDialog
-from ui.preview_dialog import ExportCancelledError, ExportClipWorker, PreviewDialog
+from ui.playback.preview_dialog import ExportCancelledError, ExportClipWorker, PreviewDialog
 
 
 class PreviewGuiMixin:

@@ -6,7 +6,7 @@ This document summarizes module responsibilities and configuration boundaries.
 
 ```mermaid
 flowchart LR
-    A[UI Layer\nui/gui.py + controllers + presenters + workers] --> B[Service Layer\nsrc/services/*]
+    A[UI Layer\nui/windows/gui.py + controllers + presenters + workers] --> B[Service Layer\nsrc/services/*]
     B --> C[Core Layer\nsrc/core/*]
     C --> D[Storage Layer\nFAISS index + vectors + metadata]
     B --> E[Runtime Resources\nModels + FFmpeg + VLC runtime]
@@ -127,9 +127,9 @@ New code should prefer these getters; remaining legacy reads can be migrated gra
 
 ### Remix source match
 
-1. User selects a remix file, match parameters, and optional **library scope** (entire index vs checked videos) on the Remix page (`RemixMatchPage` in `ui/components.py`).
+1. User selects a remix file, match parameters, and optional **library scope** (entire index vs checked videos) on the Remix page (`RemixMatchPage` in `ui/widgets/components.py`).
 2. `RemixMatchWorker` (`ui/workers.py`) calls `run_remix_match` in `remix_match_service.py`: load or compute remix-frame CLIP vectors (disk cache in `remix_embedding_cache.py`), query FAISS against scoped library vectors, then aggregate raw hits into segments in `remix_match_aggregate.py`.
-3. UI renders `RemixSearchHit` rows via `populate_remix_result_table` (`ui/table_views.py`); **Compare** opens `RemixCompareDialog` for side-by-side VLC preview.
+3. UI renders `RemixSearchHit` rows via `populate_remix_result_table` (`ui/views/table_views.py`); **Compare** opens `RemixCompareDialog` for side-by-side VLC preview.
 
 End-user and cache-path details: **`docs/remix_source_match.md`**.
 
@@ -195,25 +195,46 @@ src/
     update_video.py
   utils.py
 ui/
-  app_meta_controller.py
-  components.py
-  gui.py
-  indexing_controller.py
-  layout.py
-  mobile_bridge_controller.py
-  network_build_presenter.py
-  network_precheck_presenter.py
-  network_search_controller.py
-  preview_controller.py
-  preview_dialog.py
-  runtime_resource_controller.py
-  remix_compare_dialog.py
-  search_controller.py
-  styles.py
-  table_views.py
-  threading_utils.py
-  vlc_player.py
+  __init__.py
   workers.py
+  threading_utils.py
+  windows/
+    __init__.py
+    gui.py
+    gui_remix.py
+    gui_settings.py
+    gui_preview.py
+    gui_library_indexing.py
+    gui_vector_network.py
+    gui_runtime.py
+    gui_model_packages.py
+  controllers/
+    __init__.py
+    app_meta_controller.py
+    indexing_controller.py
+    mobile_bridge_controller.py
+    network_search_controller.py
+    preview_controller.py
+    runtime_resource_controller.py
+    search_controller.py
+  playback/
+    __init__.py
+    vlc_player.py
+    preview_dialog.py
+    remix_compare_dialog.py
+  views/
+    __init__.py
+    table_views.py
+  presenters/
+    __init__.py
+    network_build_presenter.py
+    network_precheck_presenter.py
+  widgets/
+    __init__.py
+    styles.py
+    components.py
+    layout.py
+    remix_scope_tree.py
   dialogs/
     __init__.py
     about.py
@@ -291,5 +312,5 @@ This file is intended for product/distribution control rather than user edits.
 
 ## Mobile bridge (optional)
 
-- `src/web/mobile_bridge.py` exposes a small local HTTP API; `ui/mobile_bridge_controller.py` and `ui/dialogs/mobile_bridge.py` start/stop the server and surface connection UI.
+- `src/web/mobile_bridge.py` exposes a small local HTTP API; `ui/controllers/mobile_bridge_controller.py` and `ui/dialogs/mobile_bridge.py` start/stop the server and surface connection UI.
 - `src/web/display_qr.py` renders QR payloads for pairing alongside the bridge UI.

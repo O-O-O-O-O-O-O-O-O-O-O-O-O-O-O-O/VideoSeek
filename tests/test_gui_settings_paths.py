@@ -235,7 +235,7 @@ def _build_stub_modules():
     def _stub_class(name):
         return type(name, (), {})
 
-    gui_remix_stub = types.ModuleType("ui.gui_remix")
+    gui_remix_stub = types.ModuleType("ui.windows.gui_remix")
     gui_remix_stub.RemixGuiMixin = type("RemixGuiMixin", (), {})
 
     stubs = {
@@ -245,7 +245,7 @@ def _build_stub_modules():
         "PySide6.QtMultimedia": qtmultimedia,
         "PySide6.QtMultimediaWidgets": qtmultimediawidgets,
         "PySide6.QtWidgets": qtwidgets,
-        "ui.gui_remix": gui_remix_stub,
+        "ui.windows.gui_remix": gui_remix_stub,
         "src.services.model_package_service": model_package_module,
         "src.app.config": config_module,
         "src.app.i18n": i18n_module,
@@ -265,7 +265,7 @@ def _build_stub_modules():
     }
 
     module_specs = {
-        "ui.app_meta_controller": {"AppMetaController": _stub_class("AppMetaController")},
+        "ui.controllers.app_meta_controller": {"AppMetaController": _stub_class("AppMetaController")},
         "ui.widgets.components": {
             "LibraryPage": _stub_class("LibraryPage"),
             "LinkSearchPage": _stub_class("LinkSearchPage"),
@@ -282,20 +282,20 @@ def _build_stub_modules():
             "ResourceTableDialog": _stub_class("ResourceTableDialog"),
             "SamplingRulesDialog": _stub_class("SamplingRulesDialog"),
         },
-        "ui.indexing_controller": {"IndexingController": _stub_class("IndexingController")},
+        "ui.controllers.indexing_controller": {"IndexingController": _stub_class("IndexingController")},
         "ui.widgets.layout": {"WINDOW_SIZES": {}, "apply_window_size": lambda *args, **kwargs: None},
-        "ui.mobile_bridge_controller": {"MobileBridgeController": _stub_class("MobileBridgeController")},
-        "ui.network_search_controller": {"NetworkSearchController": _stub_class("NetworkSearchController")},
-        "ui.preview_dialog": {
+        "ui.controllers.mobile_bridge_controller": {"MobileBridgeController": _stub_class("MobileBridgeController")},
+        "ui.controllers.network_search_controller": {"NetworkSearchController": _stub_class("NetworkSearchController")},
+        "ui.playback.preview_dialog": {
             "ExportCancelledError": type("ExportCancelledError", (Exception,), {}),
             "ExportClipWorker": _stub_class("ExportClipWorker"),
             "PreviewDialog": _stub_class("PreviewDialog"),
         },
-        "ui.preview_controller": {"PreviewController": _stub_class("PreviewController")},
-        "ui.runtime_resource_controller": {"RuntimeResourceController": _stub_class("RuntimeResourceController")},
-        "ui.search_controller": {"SearchController": _stub_class("SearchController")},
+        "ui.controllers.preview_controller": {"PreviewController": _stub_class("PreviewController")},
+        "ui.controllers.runtime_resource_controller": {"RuntimeResourceController": _stub_class("RuntimeResourceController")},
+        "ui.controllers.search_controller": {"SearchController": _stub_class("SearchController")},
         "ui.widgets.styles": {"DARK_STYLE": "", "LIGHT_STYLE": ""},
-        "ui.table_views": {
+        "ui.views.table_views": {
             "populate_library_table": lambda *args, **kwargs: None,
             "populate_result_table": lambda *args, **kwargs: None,
         },
@@ -317,9 +317,9 @@ def _load_gui_module():
     stubs = _build_stub_modules()
     stack = ExitStack()
     stack.enter_context(patch.dict(sys.modules, stubs))
-    sys.modules.pop("ui.gui", None)
+    sys.modules.pop("ui.windows.gui", None)
     try:
-        gui_module = importlib.import_module("ui.gui")
+        gui_module = importlib.import_module("ui.windows.gui")
         return gui_module, stack
     except Exception:
         stack.close()
@@ -434,8 +434,8 @@ class GuiSettingsPathTests(unittest.TestCase):
         dummy._build_runtime_diagnostics_detail = lambda status: "Missing DLLs: DirectML.dll"
 
         with (
-            patch("ui.gui_runtime.get_engine_runtime_status", return_value={"backend": "CPU", "diagnostics": {"missing_dlls": ["DirectML.dll"]}}),
-            patch("ui.gui.QApplication.clipboard", return_value=clipboard),
+            patch("ui.windows.gui_runtime.get_engine_runtime_status", return_value={"backend": "CPU", "diagnostics": {"missing_dlls": ["DirectML.dll"]}}),
+            patch("ui.windows.gui.QApplication.clipboard", return_value=clipboard),
         ):
             gui_module.MainWindow.copy_runtime_diagnostics(dummy)
 
@@ -468,8 +468,8 @@ class GuiSettingsPathTests(unittest.TestCase):
         dialog_inst.confirmed = MagicMock(return_value=False)
 
         with (
-            patch("ui.gui_runtime.get_engine_runtime_status", return_value={"backend": "CPU"}),
-            patch("ui.gui_runtime.AppMessageDialog") as mock_dialog,
+            patch("ui.windows.gui_runtime.get_engine_runtime_status", return_value={"backend": "CPU"}),
+            patch("ui.windows.gui_runtime.AppMessageDialog") as mock_dialog,
         ):
             mock_dialog.return_value = dialog_inst
             gui_module.MainWindow.show_runtime_diagnostics(dummy)
@@ -497,7 +497,7 @@ class GuiSettingsPathTests(unittest.TestCase):
             show_confirm_dialog=MagicMock(return_value=True),
         )
 
-        with patch("ui.gui_settings.migrate_app_data_root", return_value={"migrated": True, "new_data_root": "D:/new"}) as mock_migrate:
+        with patch("ui.windows.gui_settings.migrate_app_data_root", return_value={"migrated": True, "new_data_root": "D:/new"}) as mock_migrate:
             result = gui_module.MainWindow._migrate_data_root_if_needed(dummy, "D:/old", "D:/new")
 
         self.assertEqual(result["new_data_root"], "D:/new")
@@ -517,7 +517,7 @@ class GuiSettingsPathTests(unittest.TestCase):
             show_confirm_dialog=MagicMock(return_value=False),
         )
 
-        with patch("ui.gui_settings.migrate_app_data_root") as mock_migrate:
+        with patch("ui.windows.gui_settings.migrate_app_data_root") as mock_migrate:
             result = gui_module.MainWindow._migrate_data_root_if_needed(dummy, "D:/old", "D:/new")
 
         self.assertFalse(result)
@@ -639,10 +639,10 @@ class GuiSettingsPathTests(unittest.TestCase):
         )
 
         with (
-            patch("ui.gui_settings.load_config", return_value={"data_root": "D:/new", "pending_cleanup_data_root": "D:/old"}),
-            patch("ui.gui_settings.save_config", side_effect=saved_configs.append),
-            patch("ui.gui_settings.get_configured_data_root", return_value="D:/new"),
-            patch("ui.gui_settings.cleanup_old_data_root_service", return_value={"cleaned": True, "old_data_dir": "D:/old/data"}) as mock_cleanup,
+            patch("ui.windows.gui_settings.load_config", return_value={"data_root": "D:/new", "pending_cleanup_data_root": "D:/old"}),
+            patch("ui.windows.gui_settings.save_config", side_effect=saved_configs.append),
+            patch("ui.windows.gui_settings.get_configured_data_root", return_value="D:/new"),
+            patch("ui.windows.gui_settings.cleanup_old_data_root_service", return_value={"cleaned": True, "old_data_dir": "D:/old/data"}) as mock_cleanup,
         ):
             gui_module.MainWindow.cleanup_old_data_root(dummy)
 
@@ -691,9 +691,9 @@ class GuiSettingsPathTests(unittest.TestCase):
         )
 
         with (
-            patch("ui.gui_settings.load_config", return_value={"data_root": "D:/same", "pending_cleanup_data_root": "D:/same"}),
-            patch("ui.gui_settings.get_configured_data_root", return_value="D:/same"),
-            patch("ui.gui_settings.cleanup_old_data_root_service") as mock_cleanup,
+            patch("ui.windows.gui_settings.load_config", return_value={"data_root": "D:/same", "pending_cleanup_data_root": "D:/same"}),
+            patch("ui.windows.gui_settings.get_configured_data_root", return_value="D:/same"),
+            patch("ui.windows.gui_settings.cleanup_old_data_root_service") as mock_cleanup,
         ):
             gui_module.MainWindow.cleanup_old_data_root(dummy)
 

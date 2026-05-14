@@ -119,7 +119,7 @@ Project-local layout on Windows:
 - `vlc_lib/libvlccore.dll`
 - `vlc_lib/plugins/` (complete plugin directory)
 
-`ui/vlc_player.py` automatically:
+`ui/playback/vlc_player.py` automatically:
 - Prepends `vlc_lib/` to `PATH`
 - Sets `VLC_PLUGIN_PATH` when `vlc_lib/plugins/` exists
 

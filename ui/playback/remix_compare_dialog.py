@@ -6,7 +6,7 @@ import os
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from ui.vlc_player import VlcPreviewPlayer, create_vlc_preview_instance
+from ui.playback.vlc_player import VlcPreviewPlayer, create_vlc_preview_instance
 
 
 class RemixCompareDialog(QDialog):
@@ -43,8 +43,8 @@ class RemixCompareDialog(QDialog):
         self._source_stop = self._segment_play_end(s0, s1)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
 
         row = QHBoxLayout()
         row.setSpacing(12)
@@ -53,8 +53,8 @@ class RemixCompareDialog(QDialog):
         self.lbl_left = QLabel()
         self.lbl_left.setObjectName("CardHint")
         self.remix_host = QWidget()
+        self.remix_host.setObjectName("VideoContainer")
         self.remix_host.setMinimumHeight(320)
-        self.remix_host.setStyleSheet("background-color: black;")
         left_col.addWidget(self.lbl_left)
         left_col.addWidget(self.remix_host, 1)
 
@@ -62,8 +62,8 @@ class RemixCompareDialog(QDialog):
         self.lbl_right = QLabel()
         self.lbl_right.setObjectName("CardHint")
         self.source_host = QWidget()
+        self.source_host.setObjectName("VideoContainer")
         self.source_host.setMinimumHeight(320)
-        self.source_host.setStyleSheet("background-color: black;")
         right_col.addWidget(self.lbl_right)
         right_col.addWidget(self.source_host, 1)
 

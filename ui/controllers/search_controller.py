@@ -4,7 +4,7 @@ from PySide6.QtCore import QObject, Qt
 from PySide6.QtWidgets import QLabel
 
 from src.core.clip_embedding import get_engine_runtime_status, get_engine_runtime_warning
-from ui.table_views import populate_result_table
+from ui.views.table_views import populate_result_table
 from ui.threading_utils import shutdown_thread
 from ui.workers import SearchWarmupWorker, SearchWorker, ThumbLoader
 

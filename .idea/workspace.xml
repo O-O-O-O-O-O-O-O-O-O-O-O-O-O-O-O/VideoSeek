@@ -4,8 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="9b1fded6-c71f-46c4-9f35-b98f0ce740c1" name="更改" comment="RANSAC 线性回归">
+    <list default="true" id="9b1fded6-c71f-46c4-9f35-b98f0ce740c1" name="更改" comment="混剪回源功能完善，gui相关代码拆解">
       <change afterPath="$PROJECT_DIR$/docs/static_call_analysis.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/web/__init__.py" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/libvlc.dll" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/libvlccore.dll" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/access/libaccess_concat_plugin.dll" afterDir="false" />
@@ -373,33 +374,51 @@
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/visualization/libgoom_plugin.dll" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/visualization/libprojectm_plugin.dll" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/vlc_lib/plugins/visualization/libvisual_plugin.dll" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/VideoSeek.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/VideoSeek.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/scripts/_split_dialogs_package.py" beforeDir="false" afterPath="$PROJECT_DIR$/scripts/_split_dialogs_package.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/app/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/architecture.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/architecture.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/quickstart.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/quickstart.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/app/app_meta.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/app_meta.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/app/i18n.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/i18n.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/static/favicon.ico" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_clip_embedding_runtime.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_clip_embedding_runtime.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tests/test_controllers.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_controllers.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tests/test_gui_settings_paths.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_gui_settings_paths.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_services.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_services.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/components.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_network_presenters.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_network_presenters.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/app_meta_controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/controllers/app_meta_controller.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ui/dialogs/about.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/dialogs/about.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ui/dialogs/app_message.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/dialogs/app_message.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/dialogs/common.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/dialogs/common.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ui/dialogs/legacy_resource_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/dialogs/legacy_resource_table.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ui/dialogs/link_editor.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/dialogs/link_editor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/dialogs/mobile_bridge.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/dialogs/mobile_bridge.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ui/dialogs/model_download.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/dialogs/model_download.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ui/dialogs/notice.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/dialogs/notice.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ui/dialogs/resource_table.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/dialogs/resource_table.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ui/dialogs/sampling_rules.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/dialogs/sampling_rules.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/gui.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/gui.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/layout.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/preview_controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/preview_controller.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/runtime_resource_controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/runtime_resource_controller.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/styles.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/table_views.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/table_views.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/vlc_player.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/vlc_player.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/gui.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/windows/gui.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/gui_library_indexing.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/windows/gui_library_indexing.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/gui_model_packages.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/windows/gui_model_packages.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/gui_preview.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/windows/gui_preview.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/gui_remix.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/windows/gui_remix.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/gui_runtime.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/windows/gui_runtime.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/gui_settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/windows/gui_settings.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/gui_vector_network.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/windows/gui_vector_network.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/indexing_controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/controllers/indexing_controller.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/mobile_bridge_controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/controllers/mobile_bridge_controller.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/network_build_presenter.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/presenters/network_build_presenter.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/network_precheck_presenter.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/presenters/network_precheck_presenter.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/network_search_controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/controllers/network_search_controller.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/preview_controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/controllers/preview_controller.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/preview_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/playback/preview_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/remix_compare_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/playback/remix_compare_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/runtime_resource_controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/controllers/runtime_resource_controller.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/search_controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/controllers/search_controller.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/table_views.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/views/table_views.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/vlc_player.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/playback/vlc_player.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/widgets/components.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/widgets/components.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/widgets/remix_scope_tree.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/widgets/remix_scope_tree.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/widgets/styles.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/widgets/styles.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/workers.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/workers.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -407,7 +426,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="143" />
+    <option name="cachedIndexableFilesCount" value="139" />
   </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
@@ -501,11 +520,11 @@
       <recent name="D:\PycharmProjects\VideoSeek\data" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
-      <recent name="D:\PycharmProjects\VideoSeek\ui" />
-      <recent name="D:\PycharmProjects\VideoSeek\src" />
-      <recent name="D:\PycharmProjects\VideoSeek" />
-      <recent name="D:\PycharmProjects\VideoSeek\data\vector" />
-      <recent name="D:\PycharmProjects\VideoSeek\data\index" />
+      <recent name="D:\PycharmProjects\VideoSeek\ui\controllers" />
+      <recent name="D:\PycharmProjects\VideoSeek\ui\windows" />
+      <recent name="D:\PycharmProjects\VideoSeek\ui\playback" />
+      <recent name="D:\PycharmProjects\VideoSeek\ui\views" />
+      <recent name="D:\PycharmProjects\VideoSeek\ui\presenters" />
     </key>
   </component>
   <component name="RunManager">
@@ -726,15 +745,9 @@
       <workItem from="1778473389444" duration="4215000" />
       <workItem from="1778487462515" duration="1521000" />
       <workItem from="1778588740744" duration="12285000" />
-      <workItem from="1778631282754" duration="33275000" />
-    </task>
-    <task id="LOCAL-00026" summary="codex全面优化">
-      <option name="closed" value="true" />
-      <created>1774357455851</created>
-      <option name="number" value="00026" />
-      <option name="presentableId" value="LOCAL-00026" />
-      <option name="project" value="LOCAL" />
-      <updated>1774357455851</updated>
+      <workItem from="1778631282754" duration="33508000" />
+      <workItem from="1778692476098" duration="62000" />
+      <workItem from="1778726159643" duration="13925000" />
     </task>
     <task id="LOCAL-00027" summary="codex全面优化">
       <option name="closed" value="true" />
@@ -1120,7 +1133,15 @@
       <option name="project" value="LOCAL" />
       <updated>1778635318978</updated>
     </task>
-    <option name="localTasksCounter" value="75" />
+    <task id="LOCAL-00075" summary="混剪回源功能完善，gui相关代码拆解">
+      <option name="closed" value="true" />
+      <created>1778692202985</created>
+      <option name="number" value="00075" />
+      <option name="presentableId" value="LOCAL-00075" />
+      <option name="project" value="LOCAL" />
+      <updated>1778692202986</updated>
+    </task>
+    <option name="localTasksCounter" value="76" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -1150,7 +1171,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="readme修改" />
     <MESSAGE value="更新功能实现" />
     <MESSAGE value="无" />
     <MESSAGE value="本地向量更新逻辑优化，视频定位优化" />
@@ -1175,7 +1195,8 @@
     <MESSAGE value="补充说明" />
     <MESSAGE value="加视频溯源功能beta" />
     <MESSAGE value="RANSAC 线性回归" />
-    <option name="LAST_COMMIT_MESSAGE" value="RANSAC 线性回归" />
+    <MESSAGE value="混剪回源功能完善，gui相关代码拆解" />
+    <option name="LAST_COMMIT_MESSAGE" value="混剪回源功能完善，gui相关代码拆解" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

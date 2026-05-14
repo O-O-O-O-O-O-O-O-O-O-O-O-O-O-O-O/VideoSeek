@@ -26,6 +26,47 @@ from PySide6.QtWidgets import (
 
 from ui.widgets.layout import COMPONENT_SIZES
 from ui.widgets.remix_scope_tree import RemixScopeTreeWidget
+from ui.widgets.styles import repolish_widget
+
+# Remix match parameter presets (see remix_preset_guide_* in i18n).
+REMIX_PRESETS = {
+    "strict": {
+        "sample_fps": 2.0,
+        "score_threshold": 0.30,
+        "merge_gap": 2.0,
+        "min_segment": 1.5,
+        "remix_cluster_gap": 2.0,
+        "faiss_top_k": 40,
+        "speed_min": 0.30,
+        "speed_max": 4.0,
+        "ransac_iters": 512,
+        "min_line_points": 3,
+    },
+    "standard": {
+        "sample_fps": 2.0,
+        "score_threshold": 0.26,
+        "merge_gap": 2.5,
+        "min_segment": 1.5,
+        "remix_cluster_gap": 2.5,
+        "faiss_top_k": 48,
+        "speed_min": 0.25,
+        "speed_max": 4.0,
+        "ransac_iters": 384,
+        "min_line_points": 2,
+    },
+    "loose": {
+        "sample_fps": 2.0,
+        "score_threshold": 0.22,
+        "merge_gap": 3.0,
+        "min_segment": 0.8,
+        "remix_cluster_gap": 2.8,
+        "faiss_top_k": 64,
+        "speed_min": 0.20,
+        "speed_max": 9.0,
+        "ransac_iters": 2000,
+        "min_line_points": 2,
+    },
+}
 
 
 def _fallback_text(texts, key, zh_text, en_text):
@@ -193,34 +234,9 @@ class SettingDetailPopup(QFrame):
         self.set_dark_mode(is_dark)
 
     def set_dark_mode(self, is_dark):
-        bg = "#1b2433" if is_dark else "#ffffff"
-        border = "#3a4a67" if is_dark else "#d5ddea"
-        title = "#f5f8ff" if is_dark else "#121826"
-        body = "#b4c0d4" if is_dark else "#5f6e84"
-        shadow = "rgba(6, 12, 22, 0.28)" if is_dark else "rgba(15, 23, 42, 0.12)"
-        self.setStyleSheet(
-            f"""
-            #SettingDetailPopup {{
-                background: {bg};
-                border: 1px solid {border};
-                border-radius: 12px;
-            }}
-            #SettingDetailPopupTitle {{
-                color: {title};
-                font-size: 13px;
-                font-weight: 700;
-                background: transparent;
-            }}
-            #SettingDetailPopupBody {{
-                color: {body};
-                font-size: 12px;
-                font-weight: 600;
-                line-height: 1.45em;
-                background: transparent;
-            }}
-            """
-        )
+        self._is_dark = is_dark
         self.setGraphicsEffect(None)
+        repolish_widget(self)
 
     def show_for_label(self, label, title, text):
         self._anchor_label = label
@@ -890,12 +906,6 @@ class RemixMatchPage(QWidget):
             line.setFixedHeight(1)
             return line
 
-        self.match_card = QFrame()
-        self.match_card.setObjectName("PanelCard")
-        match_layout = QVBoxLayout(self.match_card)
-        match_layout.setContentsMargins(18, 18, 18, 18)
-        match_layout.setSpacing(12)
-
         self.mix_label = QLabel()
         self.mix_label.setObjectName("CardTitle")
         self.mix_hint = QLabel()
@@ -918,6 +928,37 @@ class RemixMatchPage(QWidget):
         self.btn_browse_mix.setCursor(Qt.CursorShape.PointingHandCursor)
         mix_inner.addWidget(self.input_mix_path, 1)
         mix_inner.addWidget(self.btn_browse_mix, 0)
+
+        action_row = QHBoxLayout()
+        action_row.setSpacing(8)
+        self.btn_run = QPushButton()
+        self.btn_run.setObjectName("PrimaryButton")
+        self.btn_run.setMinimumWidth(140)
+        self.btn_stop = QPushButton()
+        self.btn_stop.setObjectName("DangerGhostButton")
+        self.btn_stop.setMinimumWidth(100)
+        self.btn_stop.setEnabled(False)
+        self.btn_clear = QPushButton()
+        self.btn_clear.setObjectName("GhostButton")
+        action_row.addWidget(self.btn_run)
+        action_row.addWidget(self.btn_stop)
+        action_row.addWidget(self.btn_clear)
+        action_row.addStretch(1)
+        self.lbl_status = QLabel()
+        self.lbl_status.setObjectName("StatusLabel")
+        self.lbl_status.setWordWrap(True)
+
+        self.remix_source_card = QFrame()
+        self.remix_source_card.setObjectName("PanelCard")
+        source_layout = QVBoxLayout(self.remix_source_card)
+        source_layout.setContentsMargins(18, 18, 18, 18)
+        source_layout.setSpacing(12)
+        source_layout.addWidget(self.mix_label)
+        source_layout.addWidget(self.mix_hint)
+        source_layout.addWidget(self.mix_path_frame)
+        source_layout.addWidget(make_divider())
+        source_layout.addLayout(action_row)
+        source_layout.addWidget(self.lbl_status)
 
         self.params_disclosure = RemixDisclosureHeader()
         self.params_disclosure.set_toggle_handler(self._toggle_remix_params_visible)
@@ -1083,6 +1124,23 @@ class RemixMatchPage(QWidget):
         params_footer.addWidget(self.remix_params_short_hint, 1)
         params_footer.addWidget(self.btn_open_remix_cache, 0)
 
+        self.lbl_remix_preset = QLabel()
+        self.lbl_remix_preset.setObjectName("FormLabel")
+        self.combo_remix_preset = QComboBox()
+        self.combo_remix_preset.setMinimumWidth(max(160, spin_w + 24))
+        for _ in range(4):
+            self.combo_remix_preset.addItem("")
+        self.remix_preset_guide = QLabel()
+        self.remix_preset_guide.setObjectName("CardHint")
+        self.remix_preset_guide.setWordWrap(True)
+        self._remix_texts_cache: dict = {}
+        self._remix_preset_block = False
+
+        preset_top = QHBoxLayout()
+        preset_top.setSpacing(12)
+        preset_top.addWidget(self.lbl_remix_preset, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        preset_top.addWidget(self.combo_remix_preset, 1)
+
         self.remix_params_body = QWidget()
         remix_params_body_layout = QVBoxLayout(self.remix_params_body)
         remix_params_body_layout.setContentsMargins(0, 0, 0, 0)
@@ -1090,14 +1148,31 @@ class RemixMatchPage(QWidget):
         remix_params_body_layout.addLayout(params)
         remix_params_body_layout.addLayout(params_footer)
 
-        match_layout.addWidget(self.mix_label)
-        match_layout.addWidget(self.mix_hint)
-        match_layout.addWidget(self.mix_path_frame)
-        match_layout.addWidget(make_divider())
-        match_layout.addWidget(self.params_disclosure)
-        match_layout.addWidget(self.remix_params_body)
+        self.combo_remix_preset.currentIndexChanged.connect(self._on_remix_preset_index_changed)
+        for _spin in (
+            self.input_sample_fps,
+            self.input_score_threshold,
+            self.input_merge_gap,
+            self.input_min_segment,
+            self.input_remix_cluster_gap,
+            self.input_faiss_top_k,
+            self.input_speed_min,
+            self.input_speed_max,
+            self.input_ransac_iters,
+            self.input_min_line_points,
+        ):
+            _spin.valueChanged.connect(self._on_remix_spin_param_changed)
+
+        self.remix_params_card = QFrame()
+        self.remix_params_card.setObjectName("PanelCard")
+        params_card_layout = QVBoxLayout(self.remix_params_card)
+        params_card_layout.setContentsMargins(18, 18, 18, 18)
+        params_card_layout.setSpacing(12)
+        params_card_layout.addWidget(self.params_disclosure)
+        params_card_layout.addLayout(preset_top)
+        params_card_layout.addWidget(self.remix_preset_guide)
+        params_card_layout.addWidget(self.remix_params_body)
         self.remix_params_body.setVisible(False)
-        root.addWidget(self.match_card)
 
         self.scope_card = QFrame()
         self.scope_card.setObjectName("PanelCard")
@@ -1105,10 +1180,28 @@ class RemixMatchPage(QWidget):
         scope_layout.setContentsMargins(18, 18, 18, 18)
         scope_layout.setSpacing(12)
 
-        self.scope_disclosure = RemixDisclosureHeader()
-        self.scope_disclosure.set_toggle_handler(self._toggle_scope_list_visible)
-        self.scope_title = self.scope_disclosure.title_label
-        self._scope_list_expanded = False
+        self.scope_section_title = QLabel()
+        self.scope_section_title.setObjectName("CardTitle")
+        self.scope_card_hint = QLabel()
+        self.scope_card_hint.setObjectName("CardHint")
+        self.scope_card_hint.setWordWrap(True)
+        self.lbl_scope_summary = QLabel()
+        self.lbl_scope_summary.setObjectName("CardHint")
+        self.lbl_scope_summary.setWordWrap(True)
+
+        self.btn_edit_scope = QPushButton()
+        self.btn_edit_scope.setObjectName("AccentGhostButton")
+        self.btn_edit_scope.setMinimumWidth(160)
+
+        scope_action = QHBoxLayout()
+        scope_action.setSpacing(12)
+        scope_action.addWidget(self.btn_edit_scope, 0)
+        scope_action.addStretch(1)
+
+        scope_layout.addWidget(self.scope_section_title)
+        scope_layout.addWidget(self.scope_card_hint)
+        scope_layout.addWidget(self.lbl_scope_summary)
+        scope_layout.addLayout(scope_action)
 
         self.scope_table_hint = QLabel()
         self.scope_table_hint.setObjectName("RemixScopeHint")
@@ -1144,32 +1237,18 @@ class RemixMatchPage(QWidget):
         scope_list_layout.addLayout(scope_tool_row)
         scope_list_layout.addWidget(self.scope_tree_wrap, 1)
 
-        action_row = QHBoxLayout()
-        action_row.setSpacing(8)
-        self.btn_run = QPushButton()
-        self.btn_run.setObjectName("PrimaryButton")
-        self.btn_run.setMinimumWidth(140)
-        self.btn_stop = QPushButton()
-        self.btn_stop.setObjectName("DangerGhostButton")
-        self.btn_stop.setMinimumWidth(100)
-        self.btn_stop.setEnabled(False)
-        self.btn_clear = QPushButton()
-        self.btn_clear.setObjectName("GhostButton")
-        action_row.addWidget(self.btn_run)
-        action_row.addWidget(self.btn_stop)
-        action_row.addWidget(self.btn_clear)
-        action_row.addStretch(1)
-        self.lbl_status = QLabel()
-        self.lbl_status.setObjectName("StatusLabel")
-        self.lbl_status.setWordWrap(True)
+        self._scope_editor_stash = QWidget()
+        self._scope_editor_stash.setVisible(False)
+        self._scope_editor_stash.setMaximumHeight(0)
+        self._scope_editor_stash.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self._scope_stash_layout = QVBoxLayout(self._scope_editor_stash)
+        self._scope_stash_layout.setContentsMargins(0, 0, 0, 0)
+        self._scope_stash_layout.setSpacing(0)
+        self._scope_stash_layout.addWidget(self.scope_list_body)
 
-        scope_layout.addWidget(self.scope_disclosure)
-        scope_layout.addWidget(self.scope_list_body, 1)
-        self.scope_list_body.setVisible(False)
-        scope_layout.addWidget(make_divider())
-        scope_layout.addLayout(action_row)
-        scope_layout.addWidget(self.lbl_status)
+        root.addWidget(self.remix_params_card)
         root.addWidget(self.scope_card, 1)
+        root.addWidget(self._scope_editor_stash)
 
         self.results_card = QFrame()
         self.results_card.setObjectName("PanelCard")
@@ -1183,22 +1262,32 @@ class RemixMatchPage(QWidget):
         self.result_table.setColumnWidth(7, 250)
         results_layout.addWidget(self.results_title)
         results_layout.addWidget(self.result_table)
+        root.addWidget(self.remix_source_card)
         root.addWidget(self.results_card, 1)
 
     def _sync_remix_disclosure_headers(self):
         self.params_disclosure.set_expanded(self._remix_params_expanded)
         self.remix_params_body.setVisible(self._remix_params_expanded)
-        self.scope_disclosure.set_expanded(self._scope_list_expanded)
-        self.scope_list_body.setVisible(self._scope_list_expanded)
         self.params_disclosure.setToolTip("")
-        self.scope_disclosure.setToolTip("")
 
-    def _toggle_scope_list_visible(self):
-        self._scope_list_expanded = not self._scope_list_expanded
-        self.scope_list_body.setVisible(self._scope_list_expanded)
-        self._sync_remix_disclosure_headers()
-        if self._scope_list_expanded:
-            QTimer.singleShot(0, self.scope_tree.reflow_all_lib_trees)
+    def configure_remix_scope_section(self, texts: dict) -> None:
+        self.scope_section_title.setText(texts.get("remix_scope_title", ""))
+        self.scope_card_hint.setText(texts.get("remix_scope_card_hint", ""))
+        self.btn_edit_scope.setText(texts.get("remix_scope_edit", "…"))
+        self.scope_table_hint.setText(texts.get("remix_scope_table_hint", ""))
+        self.btn_scope_all.setText(texts["remix_select_all"])
+        self.btn_scope_none.setText(texts["remix_select_none"])
+        self.scope_tree.set_header_labels(texts.get("remix_scope_tree_name_col", ""))
+        self.refresh_scope_summary(texts)
+
+    def refresh_scope_summary(self, texts: dict) -> None:
+        n_vid, n_lib = self.scope_tree.scope_selection_counts()
+        total = self.scope_tree.total_video_items()
+        if total <= 0:
+            self.lbl_scope_summary.setText(texts.get("remix_scope_summary_no_indexed", ""))
+        else:
+            tpl = texts.get("remix_scope_summary", "{videos} · {libs}")
+            self.lbl_scope_summary.setText(tpl.format(videos=n_vid, libs=n_lib))
 
     def _toggle_remix_params_visible(self):
         self._remix_params_expanded = not self._remix_params_expanded
@@ -1210,14 +1299,95 @@ class RemixMatchPage(QWidget):
         if not body:
             return
         for lbl, _ in self._remix_param_bindings:
-            lbl.setStyleSheet("font-weight: 700; color: #3b82f6;" if lbl is label else "")
+            lbl.setProperty("detailActive", lbl is label)
+            repolish_widget(lbl)
         self._remix_param_popup.set_dark_mode(getattr(self.window(), "is_dark_mode", True))
         self._remix_param_popup.show_for_label(label, label.text().strip(), body)
 
+    def _remix_values_match_preset(self, key: str) -> bool:
+        spec = REMIX_PRESETS[key]
+        return (
+            abs(float(self.input_sample_fps.value()) - spec["sample_fps"]) < 0.051
+            and abs(float(self.input_score_threshold.value()) - spec["score_threshold"]) < 0.002
+            and abs(float(self.input_merge_gap.value()) - spec["merge_gap"]) < 0.051
+            and abs(float(self.input_min_segment.value()) - spec["min_segment"]) < 0.051
+            and abs(float(self.input_remix_cluster_gap.value()) - spec["remix_cluster_gap"]) < 0.051
+            and int(self.input_faiss_top_k.value()) == int(spec["faiss_top_k"])
+            and abs(float(self.input_speed_min.value()) - spec["speed_min"]) < 0.021
+            and abs(float(self.input_speed_max.value()) - spec["speed_max"]) < 0.051
+            and int(self.input_ransac_iters.value()) == int(spec["ransac_iters"])
+            and int(self.input_min_line_points.value()) == int(spec["min_line_points"])
+        )
+
+    def _remix_detect_preset_key(self) -> str:
+        for key in ("strict", "standard", "loose"):
+            if self._remix_values_match_preset(key):
+                return key
+        return "custom"
+
+    def _set_remix_preset_hint(self, key: str) -> None:
+        texts = self._remix_texts_cache or {}
+        self.remix_preset_guide.setText(texts.get(f"remix_preset_guide_{key}", ""))
+
+    def _sync_remix_preset_combo_from_values(self) -> None:
+        if self._remix_preset_block:
+            return
+        key = self._remix_detect_preset_key()
+        idx = {"strict": 0, "standard": 1, "loose": 2, "custom": 3}[key]
+        self._remix_preset_block = True
+        try:
+            if self.combo_remix_preset.currentIndex() != idx:
+                self.combo_remix_preset.setCurrentIndex(idx)
+        finally:
+            self._remix_preset_block = False
+        self._set_remix_preset_hint(key)
+
+    def _apply_remix_preset(self, key: str) -> None:
+        spec = REMIX_PRESETS.get(key)
+        if spec is None:
+            return
+        self._remix_preset_block = True
+        try:
+            self.input_sample_fps.setValue(float(spec["sample_fps"]))
+            self.input_score_threshold.setValue(float(spec["score_threshold"]))
+            self.input_merge_gap.setValue(float(spec["merge_gap"]))
+            self.input_min_segment.setValue(float(spec["min_segment"]))
+            self.input_remix_cluster_gap.setValue(float(spec["remix_cluster_gap"]))
+            self.input_faiss_top_k.setValue(int(spec["faiss_top_k"]))
+            self.input_speed_min.setValue(float(spec["speed_min"]))
+            self.input_speed_max.setValue(float(spec["speed_max"]))
+            self.input_ransac_iters.setValue(int(spec["ransac_iters"]))
+            self.input_min_line_points.setValue(int(spec["min_line_points"]))
+        finally:
+            self._remix_preset_block = False
+        self._set_remix_preset_hint(key)
+
+    def _on_remix_preset_index_changed(self, index: int) -> None:
+        if self._remix_preset_block:
+            return
+        keys = ("strict", "standard", "loose")
+        if index < len(keys):
+            self._apply_remix_preset(keys[index])
+        else:
+            self._set_remix_preset_hint("custom")
+
+    def _on_remix_spin_param_changed(self, *_args) -> None:
+        if self._remix_preset_block:
+            return
+        self._sync_remix_preset_combo_from_values()
+
     def configure_remix_params(self, texts: dict):
+        self._remix_texts_cache = texts
         for lbl, _ in self._remix_param_bindings:
-            lbl.setStyleSheet("")
+            lbl.setProperty("detailActive", False)
+            repolish_widget(lbl)
             lbl.setToolTip("")
+        self.lbl_remix_preset.setText(texts.get("remix_preset_level", "Preset"))
+        self.combo_remix_preset.setItemText(0, texts.get("remix_preset_strict", "Strict"))
+        self.combo_remix_preset.setItemText(1, texts.get("remix_preset_standard", "Standard"))
+        self.combo_remix_preset.setItemText(2, texts.get("remix_preset_loose", "Loose"))
+        self.combo_remix_preset.setItemText(3, texts.get("remix_preset_custom", "Custom"))
+        self.combo_remix_preset.setToolTip(texts.get("remix_preset_combo_tip", ""))
         self.remix_params_short_hint.setText(texts.get("remix_params_short_hint", ""))
         self.lbl_sample_fps.setText(texts["remix_sample_fps"])
         self.hint_sample_fps.setText(texts.get("remix_sample_fps_tip", ""))
@@ -1254,6 +1424,7 @@ class RemixMatchPage(QWidget):
             self.input_min_line_points,
         ):
             spin.setToolTip("")
+        self._sync_remix_preset_combo_from_values()
         self._sync_remix_disclosure_headers()
 
 
@@ -1754,10 +1925,8 @@ class SettingsPage(QWidget):
         return self.input_sampling_fps_rules.text().strip()
 
     def set_sampling_rules_error_state(self, has_error):
-        if has_error:
-            self.sampling_rules_summary.setStyleSheet("color: #d9534f;")
-            return
-        self.sampling_rules_summary.setStyleSheet("")
+        self.sampling_rules_summary.setProperty("state", "error" if has_error else "neutral")
+        repolish_widget(self.sampling_rules_summary)
 
     def refresh_sampling_rules_summary(self):
         normalized = self.get_sampling_fps_rules_text()
@@ -1879,7 +2048,8 @@ class SettingsPage(QWidget):
             return
         self._active_setting_label = label
         for current_label, _, _ in self._setting_detail_bindings:
-            current_label.setStyleSheet("font-weight: 700; color: #3b82f6;" if current_label is label else "")
+            current_label.setProperty("detailActive", current_label is label)
+            repolish_widget(current_label)
         self.detail_popup.set_dark_mode(getattr(self.window(), "is_dark_mode", True))
         self.detail_popup.show_for_label(label, label.text().strip(), detail_text)
 
@@ -2075,6 +2245,8 @@ class SettingsPage(QWidget):
             self.label_model_dir,
         ]:
             self._configure_setting_label(label)
+            label.setProperty("detailActive", False)
+            repolish_widget(label)
     def refresh_active_setting_detail(self):
         if self._active_setting_label is not None:
             for label, hint_label, extra_hint_labels in self._setting_detail_bindings:

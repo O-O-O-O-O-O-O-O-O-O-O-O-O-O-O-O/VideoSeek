@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from src.domain.remote_search_hit import coerce_remote_search_hit
 from src.domain.remix_search_hit import coerce_remix_search_hit
 from src.domain.search_hit import coerce_search_hit
+from ui.widgets.styles import repolish_widget
 
 
 def _fallback_text(texts, key, zh_text, en_text):
@@ -346,17 +347,14 @@ def _build_library_row_card(index, path, data, is_indexing, on_sync, on_remove, 
         path_col.addWidget(sub)
 
     status_text = _library_status_text(path, data, texts)
-    status_color = _library_status_color(path, data)
     status = QLabel(status_text)
     status.setObjectName("LibraryCardStatus")
+    status.setProperty("libState", _library_status_lib_state(path, data))
+    repolish_widget(status)
     status.setAlignment(Qt.AlignCenter)
     status.setWordWrap(True)
     status.setMinimumWidth(88)
     status.setMaximumWidth(118)
-    status.setStyleSheet(
-        f"color: {status_color}; border: 1px solid {status_color}; border-radius: 10px; "
-        f"padding: 6px 10px; font-weight: 700; background: transparent;"
-    )
 
     actions = _build_library_actions(path, is_indexing, on_sync, on_remove, on_open, texts)
     actions.setMinimumWidth(196)
@@ -381,17 +379,17 @@ def _library_status_text(path, data, texts):
     return _fallback_text(texts, "lib_offline", "离线/不可用", "Offline")
 
 
-def _library_status_color(path, data):
+def _library_status_lib_state(path, data):
     exists = os.path.exists(path)
     has_index = len(data.get("files", {})) > 0
     state = str(data.get("index_state", "")).strip().lower()
     if exists and state == "partial":
-        return "#1677ff"
+        return "partial"
     if exists and has_index:
-        return "#52c41a"
+        return "ready"
     if exists:
-        return "#faad14"
-    return "#8c8c8c"
+        return "pending"
+    return "offline"
 
 
 def _build_library_actions(path, is_indexing, on_sync, on_remove, on_open, texts):

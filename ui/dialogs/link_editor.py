@@ -11,13 +11,11 @@ from PySide6.QtWidgets import (
 from src.app.i18n import get_texts
 from ui.widgets.layout import WINDOW_SIZES, apply_dialog_size
 
-from .common import dialog_palette
 
 class LinkEditorDialog(QDialog):
     def __init__(self, parent=None, is_dark=True, language="zh", initial_links=None):
         super().__init__(parent)
         self.texts = get_texts(language)
-        palette = dialog_palette(is_dark)
         self._links = list(initial_links or [])
 
         self.setWindowTitle(self.texts["network_link_editor_title"])
@@ -28,48 +26,26 @@ class LinkEditorDialog(QDialog):
             WINDOW_SIZES["notice_dialog"]["screen_margin"],
         )
 
-        self.setStyleSheet(
-            f"""
-            QDialog {{ background: {palette['bg']}; }}
-            QLabel {{ color: {palette['text']}; background: transparent; }}
-            #Hint {{ color: {palette['muted']}; font-size: 12px; }}
-            QPlainTextEdit {{
-                background: {palette['card']};
-                color: {palette['text']};
-                border: 1px solid {palette['border']};
-                border-radius: 12px;
-                padding: 10px;
-                font-family: Consolas, 'Microsoft YaHei UI';
-                font-size: 12px;
-            }}
-            QPushButton {{
-                border-radius: 10px;
-                border: 1px solid {palette['border']};
-                padding: 8px 12px;
-                color: {palette['text']};
-                background: {palette['card']};
-            }}
-            #Primary {{ background: {palette['accent']}; color: white; border-color: {palette['accent']}; }}
-            """
-        )
-
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(10)
 
         title = QLabel(self.texts["network_link_editor_title"])
-        title.setStyleSheet("font-size: 18px; font-weight: 700;")
+        title.setObjectName("DialogSectionTitle")
         hint = QLabel(self.texts["network_link_editor_hint"])
         hint.setObjectName("Hint")
         hint.setWordWrap(True)
 
         self.editor = QPlainTextEdit()
+        self.editor.setObjectName("DialogPlainBody")
         self.editor.setPlaceholderText(self.texts["network_link_editor_placeholder"])
         self.editor.setPlainText("\n".join(self._links))
 
         toolbar = QHBoxLayout()
         self.btn_import = QPushButton(self.texts["network_link_editor_import"])
+        self.btn_import.setObjectName("GhostButton")
         self.btn_clear = QPushButton(self.texts["network_link_editor_clear"])
+        self.btn_clear.setObjectName("GhostButton")
         toolbar.addWidget(self.btn_import)
         toolbar.addWidget(self.btn_clear)
         toolbar.addStretch()
@@ -77,8 +53,9 @@ class LinkEditorDialog(QDialog):
         actions = QHBoxLayout()
         actions.addStretch()
         self.btn_cancel = QPushButton(self.texts["cancel"])
+        self.btn_cancel.setObjectName("GhostButton")
         self.btn_ok = QPushButton(self.texts["confirm_action"])
-        self.btn_ok.setObjectName("Primary")
+        self.btn_ok.setObjectName("PrimaryButton")
         actions.addWidget(self.btn_cancel)
         actions.addWidget(self.btn_ok)
 
@@ -124,4 +101,3 @@ class LinkEditorDialog(QDialog):
         merged = [line for line in existing if line.strip()]
         merged.extend(imported)
         self.editor.setPlainText("\n".join(merged))
-

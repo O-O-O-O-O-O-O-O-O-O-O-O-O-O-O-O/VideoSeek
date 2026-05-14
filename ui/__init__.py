@@ -1,0 +1,1 @@
+"""VideoSeek desktop UI package."""

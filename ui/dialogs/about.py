@@ -14,7 +14,6 @@ from src.app.config import get_app_version
 from src.app.i18n import get_texts
 from ui.widgets.layout import WINDOW_SIZES, apply_dialog_size
 
-from .common import dialog_palette
 
 class AboutDialog(QDialog):
     def __init__(self, parent=None, is_dark=True, language="zh", version_info=None, about=None):
@@ -31,35 +30,6 @@ class AboutDialog(QDialog):
             WINDOW_SIZES["about_dialog"]["screen_margin"],
         )
 
-        palette = dialog_palette(is_dark)
-        bg = palette["bg"]
-        card = palette["card"]
-        text = palette["text"]
-        muted = palette["muted"]
-        accent = palette["accent"]
-        border = palette["border"]
-
-        self.setStyleSheet(f"""
-            QDialog {{ background: {bg}; }}
-            QLabel {{ color: {text}; background: transparent; }}
-            QTextEdit, QTextBrowser {{
-                background: {card};
-                color: {muted};
-                border: 1px solid {border};
-                border-radius: 16px;
-                padding: 12px;
-                font-size: 13px;
-            }}
-            QPushButton {{
-                background: {accent};
-                color: white;
-                border: none;
-                border-radius: 12px;
-                padding: 10px 18px;
-                font-weight: 700;
-            }}
-        """)
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(12)
@@ -67,21 +37,22 @@ class AboutDialog(QDialog):
         title_text = about.get("title", texts["app_name"])
         subtitle_text = about.get("badge", texts["about_badge"])
         title = QLabel(title_text)
-        title.setStyleSheet("font-size: 22px; font-weight: 800;")
+        title.setObjectName("DialogHeroTitle")
         subtitle = QLabel(subtitle_text)
-        subtitle.setStyleSheet(f"color: {muted}; font-size: 12px;")
+        subtitle.setObjectName("Hint")
         subtitle.setWordWrap(True)
         version = QLabel(texts["version_label"].format(version=get_app_version()))
-        version.setStyleSheet(f"color: {muted}; font-size: 12px;")
+        version.setObjectName("DialogMetaLabel")
         version_status = QLabel(version_info.get("status_text", texts["version_check_unavailable"]))
-        version_status.setStyleSheet(f"color: {muted}; font-size: 13px;")
+        version_status.setObjectName("DialogMetaLabel")
         version_status.setWordWrap(True)
 
         divider = QFrame()
         divider.setFrameShape(QFrame.HLine)
-        divider.setStyleSheet(f"background: {border}; max-height: 1px; margin: 8px 0;")
+        divider.setObjectName("DialogDivider")
 
         body = QTextBrowser()
+        body.setObjectName("DialogBodyBrowser")
         body.setReadOnly(True)
         body.setOpenExternalLinks(True)
         if about.get("format") == "html":
@@ -90,11 +61,13 @@ class AboutDialog(QDialog):
             body.setPlainText(about.get("body", texts["about_body"]))
 
         download_button = QPushButton(texts["download_latest"])
+        download_button.setObjectName("PrimaryButton")
         download_button.setFixedHeight(40)
         download_button.setVisible(bool(version_info.get("download_url")) and version_info.get("has_update"))
         download_button.clicked.connect(lambda: webbrowser.open(version_info["download_url"]))
 
         close_button = QPushButton(texts["close"])
+        close_button.setObjectName("PrimaryButton")
         close_button.setFixedHeight(40)
         close_button.clicked.connect(self.accept)
 
@@ -111,4 +84,3 @@ class AboutDialog(QDialog):
         button_row.addWidget(close_button)
 
         layout.addLayout(button_row)
-

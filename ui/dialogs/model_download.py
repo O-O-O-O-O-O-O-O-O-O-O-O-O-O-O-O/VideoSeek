@@ -4,8 +4,8 @@ from PySide6.QtWidgets import QAbstractItemView, QDialog, QFileDialog, QFrame, Q
 
 from src.app.i18n import get_texts
 from ui.widgets.layout import WINDOW_SIZES, apply_dialog_size
+from ui.widgets.styles import THEME_COLORS_DARK, THEME_COLORS_LIGHT
 
-from .common import dialog_palette
 
 class ModelDownloadDialog(QDialog):
     upload_requested = Signal()
@@ -15,7 +15,7 @@ class ModelDownloadDialog(QDialog):
     def __init__(self, parent=None, is_dark=True, language="zh"):
         super().__init__(parent)
         self.texts = get_texts(language)
-        self.palette = dialog_palette(is_dark)
+        self._is_dark = bool(is_dark)
         self._downloading = False
         self._selected_files = []
 
@@ -31,80 +31,6 @@ class ModelDownloadDialog(QDialog):
             WINDOW_SIZES["notice_dialog"]["screen_margin"],
         )
 
-        self.setStyleSheet(
-            f"""
-            QDialog {{ background: {self.palette['bg']}; }}
-            QLabel {{ color: {self.palette['text']}; background: transparent; }}
-            #Card {{ background: {self.palette['card']}; border: 1px solid {self.palette['border']}; border-radius: 20px; }}
-            #Title {{ font-size: 24px; font-weight: 800; }}
-            #Body {{ color: {self.palette['muted']}; font-size: 13px; line-height: 1.45; }}
-            #Hint {{ color: {self.palette['muted']}; font-size: 12px; }}
-            #SectionTitle {{ color: {self.palette['text']}; font-size: 13px; font-weight: 700; }}
-            #UploadArea {{
-                text-align: center;
-                border: 2px dashed {self.palette['border']};
-                border-radius: 16px;
-                padding: 20px;
-                background: {self.palette['bg']};
-                color: {self.palette['text']};
-                font-size: 14px;
-                font-weight: 600;
-                min-height: 96px;
-            }}
-            #UploadArea:hover {{
-                border-color: {self.palette['accent']};
-                background: {self.palette['card']};
-            }}
-            #FileList {{
-                border: 1px solid {self.palette['border']};
-                border-radius: 12px;
-                background: {self.palette['bg']};
-                padding: 6px;
-                outline: 0;
-            }}
-            #FileList::item {{
-                padding: 8px 10px;
-                border-radius: 8px;
-                margin: 2px 0;
-                border: 1px solid transparent;
-            }}
-            #FileList::item:hover {{
-                background: {self.palette['card']};
-                border-color: {self.palette['border']};
-            }}
-            #FileList::item:selected {{
-                background: {self.palette['card']};
-                color: {self.palette['text']};
-                border-color: {self.palette['accent']};
-            }}
-            QPushButton {{
-                border: none; border-radius: 10px; padding: 10px 16px; font-weight: 700;
-            }}
-            #Primary {{ background: {self.palette['accent']}; color: white; }}
-            #DownloadPrimary {{ background: #2e8b57; color: white; }}
-            #AddPrimary {{ background: {self.palette['accent']}; color: white; }}
-            #DangerGhost {{
-                background: transparent;
-                border: 1px solid #c0392b;
-                color: #c0392b;
-            }}
-            #ClearDanger {{ background: #c0392b; color: white; }}
-            #Ghost {{ background: transparent; color: {self.palette['muted']}; border: 1px solid {self.palette['border']}; }}
-            #Danger {{ background: #c0392b; color: white; }}
-            QProgressBar {{
-                background: {self.palette['bg']};
-                border: 1px solid {self.palette['border']};
-                border-radius: 10px;
-                text-align: center;
-                min-height: 18px;
-            }}
-            QProgressBar::chunk {{
-                background: {self.palette['accent']};
-                border-radius: 9px;
-            }}
-            """
-        )
-
         outer = QVBoxLayout(self)
         outer.setContentsMargins(18, 18, 18, 18)
 
@@ -115,17 +41,18 @@ class ModelDownloadDialog(QDialog):
         layout.setSpacing(12)
 
         self.title_label = QLabel(self.texts["models_missing_title"])
-        self.title_label.setObjectName("Title")
+        self.title_label.setObjectName("DialogHeadline")
         self.body_label = QLabel()
-        self.body_label.setObjectName("Body")
+        self.body_label.setObjectName("DialogBodyLabel")
         self.body_label.setWordWrap(True)
+        self.body_label.setTextFormat(Qt.RichText)
 
         self.upload_area = QPushButton(self.texts.get("model_upload_area_hint", "Drop .zip/.sha256"))
-        self.upload_area.setObjectName("UploadArea")
+        self.upload_area.setObjectName("ModelUploadArea")
         self.upload_area.setMinimumHeight(72)
         self.upload_area.setCursor(Qt.PointingHandCursor)
         self.upload_file_list = QListWidget()
-        self.upload_file_list.setObjectName("FileList")
+        self.upload_file_list.setObjectName("ModelFileList")
         self.upload_file_list.setMinimumHeight(148)
         self.upload_file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.upload_file_list.setAlternatingRowColors(False)
@@ -137,7 +64,7 @@ class ModelDownloadDialog(QDialog):
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_label = QLabel()
-        self.progress_label.setObjectName("Body")
+        self.progress_label.setObjectName("DialogBodyLabel")
         self.progress_label.setWordWrap(True)
 
         utility_row = QHBoxLayout()
@@ -145,27 +72,27 @@ class ModelDownloadDialog(QDialog):
         action_row = QHBoxLayout()
         action_row.setSpacing(8)
         self.go_download_button = QPushButton(self.texts.get("model_go_download_page", "Go to Download"))
-        self.go_download_button.setObjectName("DownloadPrimary")
+        self.go_download_button.setObjectName("SearchButton")
         self.go_download_button.setMinimumWidth(196)
         self.go_download_button.setMinimumHeight(38)
         self.add_files_button = QPushButton(self.texts.get("model_upload_add_files", "Add Files"))
-        self.add_files_button.setObjectName("AddPrimary")
+        self.add_files_button.setObjectName("PrimaryButton")
         self.add_files_button.setMinimumWidth(124)
         self.add_files_button.setMinimumHeight(36)
         self.remove_files_button = QPushButton(self.texts.get("model_upload_remove_selected", "Remove Selected"))
-        self.remove_files_button.setObjectName("DangerGhost")
+        self.remove_files_button.setObjectName("DangerGhostButton")
         self.remove_files_button.setMinimumWidth(132)
         self.remove_files_button.setMinimumHeight(36)
         self.clear_files_button = QPushButton(self.texts.get("model_upload_clear_files", "Clear"))
-        self.clear_files_button.setObjectName("ClearDanger")
+        self.clear_files_button.setObjectName("SolidDangerButton")
         self.clear_files_button.setMinimumWidth(100)
         self.clear_files_button.setMinimumHeight(36)
         self.import_button = QPushButton(self.texts.get("model_upload_package", "Import and Parse Package"))
-        self.import_button.setObjectName("Primary")
+        self.import_button.setObjectName("PrimaryButton")
         self.import_button.setMinimumWidth(232)
         self.import_button.setMinimumHeight(38)
         self.done_button = QPushButton(self.texts["model_ready_action"])
-        self.done_button.setObjectName("Primary")
+        self.done_button.setObjectName("PrimaryButton")
         self.done_button.hide()
         utility_row.addWidget(self.add_files_button)
         utility_row.addWidget(self.remove_files_button)
@@ -507,8 +434,9 @@ class ModelDownloadDialog(QDialog):
         event.acceptProposedAction()
 
     def _build_resource_status_html(self, has_model_missing, has_ffmpeg_missing):
-        ok_color = "#2e8b57"
-        bad_color = "#c0392b"
+        c = THEME_COLORS_DARK if self._is_dark else THEME_COLORS_LIGHT
+        ok_color = c["SUCCESS"]
+        bad_color = c["DANGER"]
         model_state = (
             self.texts.get("models_missing_generic_model", "Model resources are missing.")
             if has_model_missing

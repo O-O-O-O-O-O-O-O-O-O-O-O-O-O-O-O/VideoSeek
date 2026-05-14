@@ -20,7 +20,7 @@ from src.storage.asset_store import load_model_metadata
 from src.workflows.update_video import delete_physical_video_data
 from src.utils import open_folder_in_explorer, open_in_explorer
 from ui.dialogs import ResourceTableDialog
-from ui.table_views import populate_library_table
+from ui.views.table_views import populate_library_table
 
 
 class LibraryIndexingGuiMixin:

@@ -221,14 +221,14 @@ if "ui.dialogs" not in sys.modules:
     dialogs_module.ModelDownloadDialog = type("ModelDownloadDialog", (), {})
     sys.modules["ui.dialogs"] = dialogs_module
 
-if "ui.table_views" not in sys.modules:
-    table_views_module = types.ModuleType("ui.table_views")
+if "ui.views.table_views" not in sys.modules:
+    table_views_module = types.ModuleType("ui.views.table_views")
 
     def _populate_result_table(*_args, **_kwargs):
         return None
 
     table_views_module.populate_result_table = _populate_result_table
-    sys.modules["ui.table_views"] = table_views_module
+    sys.modules["ui.views.table_views"] = table_views_module
 
 if "ui.workers" not in sys.modules:
     workers_module = types.ModuleType("ui.workers")
@@ -269,13 +269,13 @@ if "ui.workers" not in sys.modules:
     workers_module.IndexUpdateWorker = _BaseWorker
     sys.modules["ui.workers"] = workers_module
 
-from ui.indexing_controller import IndexingController
-from ui.mobile_bridge_controller import MobileBridgeController
-from ui.runtime_resource_controller import RuntimeResourceController
-from ui.preview_controller import PreviewController
-from ui.preview_dialog import PreviewDialog
-from ui.search_controller import SearchController
-from ui.vlc_player import VlcPreviewPlayer
+from ui.controllers.indexing_controller import IndexingController
+from ui.controllers.mobile_bridge_controller import MobileBridgeController
+from ui.controllers.runtime_resource_controller import RuntimeResourceController
+from ui.controllers.preview_controller import PreviewController
+from ui.playback.preview_dialog import PreviewDialog
+from ui.controllers.search_controller import SearchController
+from ui.playback.vlc_player import VlcPreviewPlayer
 
 
 def _make_parent_window():
@@ -306,9 +306,9 @@ def _make_parent_window():
 
 
 class RuntimeResourceControllerTests(unittest.TestCase):
-    @patch("ui.runtime_resource_controller.get_runtime_resource_location_text", return_value="Resources")
-    @patch("ui.runtime_resource_controller.ensure_runtime_resource_dirs")
-    @patch("ui.runtime_resource_controller.get_runtime_resource_status")
+    @patch("ui.controllers.runtime_resource_controller.get_runtime_resource_location_text", return_value="Resources")
+    @patch("ui.controllers.runtime_resource_controller.ensure_runtime_resource_dirs")
+    @patch("ui.controllers.runtime_resource_controller.get_runtime_resource_status")
     def test_check_resources_shows_dialog_when_missing(
         self,
         mock_get_status,
@@ -338,8 +338,8 @@ class RuntimeResourceControllerTests(unittest.TestCase):
         )
         dialog.exec.assert_called_once()
 
-    @patch("ui.runtime_resource_controller.get_texts")
-    @patch("ui.runtime_resource_controller.get_runtime_resource_status")
+    @patch("ui.controllers.runtime_resource_controller.get_texts")
+    @patch("ui.controllers.runtime_resource_controller.get_runtime_resource_status")
     def test_start_download_shows_warning_when_unavailable(self, mock_get_status, mock_get_texts):
         parent = _make_parent_window()
         controller = RuntimeResourceController(parent)
@@ -357,8 +357,8 @@ class RuntimeResourceControllerTests(unittest.TestCase):
 
         parent.show_info_dialog.assert_called_once_with("Warning", "Unavailable", kind="warning")
 
-    @patch("ui.runtime_resource_controller.ResourceDownloadWorker")
-    @patch("ui.runtime_resource_controller.get_runtime_resource_status")
+    @patch("ui.controllers.runtime_resource_controller.ResourceDownloadWorker")
+    @patch("ui.controllers.runtime_resource_controller.get_runtime_resource_status")
     def test_start_download_builds_worker_with_missing_flags(self, mock_get_status, mock_worker_cls):
         parent = _make_parent_window()
         controller = RuntimeResourceController(parent)
@@ -381,7 +381,7 @@ class RuntimeResourceControllerTests(unittest.TestCase):
 
 
 class IndexingControllerTests(unittest.TestCase):
-    @patch("ui.indexing_controller.IndexUpdateWorker")
+    @patch("ui.controllers.indexing_controller.IndexUpdateWorker")
     def test_start_passes_rebuild_global_assets_flag_to_worker(self, mock_worker_cls):
         parent = _make_parent_window()
         controller = IndexingController(parent)
@@ -402,7 +402,7 @@ class IndexingControllerTests(unittest.TestCase):
 
 
 class MobileBridgeControllerTests(unittest.TestCase):
-    @patch("ui.mobile_bridge_controller.MobileBridgeService")
+    @patch("ui.controllers.mobile_bridge_controller.MobileBridgeService")
     def test_start_creates_service_once_and_returns_access_url(self, mock_service_cls):
         parent = _make_parent_window()
         service = MagicMock()
@@ -422,7 +422,7 @@ class MobileBridgeControllerTests(unittest.TestCase):
         self.assertEqual(url, "http://192.168.1.2:8918/?token=abc")
         self.assertEqual(statuses, ["running"])
 
-    @patch("ui.mobile_bridge_controller.MobileBridgeService")
+    @patch("ui.controllers.mobile_bridge_controller.MobileBridgeService")
     def test_start_reuses_running_service_without_restarting(self, mock_service_cls):
         parent = _make_parent_window()
         service = MagicMock()
@@ -453,7 +453,7 @@ class MobileBridgeControllerTests(unittest.TestCase):
 
 
 class SearchControllerTests(unittest.TestCase):
-    @patch("ui.search_controller.SearchWorker")
+    @patch("ui.controllers.search_controller.SearchWorker")
     def test_start_search_disables_button_and_starts_worker(self, mock_worker_cls):
         parent = _make_parent_window()
         controller = SearchController(parent)
@@ -486,7 +486,7 @@ class SearchControllerTests(unittest.TestCase):
         parent.result_table.setRowCount.assert_called_once_with(0)
         parent.search_page.lbl_status.setText.assert_called_with("No results")
 
-    @patch("ui.search_controller.SearchWarmupWorker")
+    @patch("ui.controllers.search_controller.SearchWarmupWorker")
     def test_start_warmup_starts_once(self, mock_worker_cls):
         parent = _make_parent_window()
         controller = SearchController(parent)
@@ -511,7 +511,7 @@ class SearchControllerTests(unittest.TestCase):
 
 
 class PreviewControllerTests(unittest.TestCase):
-    @patch("ui.preview_controller.PreviewWarmupWorker")
+    @patch("ui.controllers.preview_controller.PreviewWarmupWorker")
     def test_start_warmup_starts_once(self, mock_worker_cls):
         parent = _make_parent_window()
         controller = PreviewController(parent)
@@ -524,9 +524,9 @@ class PreviewControllerTests(unittest.TestCase):
         mock_worker_cls.assert_called_once_with()
         worker.start.assert_called_once()
 
-    @patch("ui.preview_controller.VlcPreviewPlayer")
-    @patch("ui.preview_controller.get_video_duration_seconds", return_value=120.0)
-    @patch("ui.preview_controller.load_config", return_value={"preview_seconds": 6})
+    @patch("ui.controllers.preview_controller.VlcPreviewPlayer")
+    @patch("ui.controllers.preview_controller.get_video_duration_seconds", return_value=120.0)
+    @patch("ui.controllers.preview_controller.load_config", return_value={"preview_seconds": 6})
     def test_play_prefers_vlc_for_direct_preview(self, _mock_config, _mock_duration, mock_vlc_cls):
         parent = _make_parent_window()
         vlc_player = MagicMock()
@@ -540,11 +540,11 @@ class PreviewControllerTests(unittest.TestCase):
         vlc_player.play.assert_called_once_with("D:/videos/clip.mp4", 27.0, stop_sec=33.0)
         parent.media_player.setSource.assert_called_once()
 
-    @patch("ui.preview_controller.create_preview_clip")
-    @patch("ui.preview_controller.build_preview_cache_path", return_value="D:/cache/preview.mp4")
-    @patch("ui.preview_controller.VlcPreviewPlayer")
-    @patch("ui.preview_controller.get_video_duration_seconds", return_value=120.0)
-    @patch("ui.preview_controller.load_config", return_value={"preview_seconds": 6})
+    @patch("ui.controllers.preview_controller.create_preview_clip")
+    @patch("ui.controllers.preview_controller.build_preview_cache_path", return_value="D:/cache/preview.mp4")
+    @patch("ui.controllers.preview_controller.VlcPreviewPlayer")
+    @patch("ui.controllers.preview_controller.get_video_duration_seconds", return_value=120.0)
+    @patch("ui.controllers.preview_controller.load_config", return_value={"preview_seconds": 6})
     def test_play_falls_back_to_generated_clip_when_vlc_playback_fails(
         self,
         _mock_config,
@@ -721,8 +721,8 @@ class VlcPreviewPlayerTests(unittest.TestCase):
 
 
 class PreviewDialogTests(unittest.TestCase):
-    @patch("ui.preview_dialog.get_video_duration_seconds", return_value=120.0)
-    @patch("ui.preview_dialog.VlcPreviewPlayer")
+    @patch("ui.playback.preview_dialog.get_video_duration_seconds", return_value=120.0)
+    @patch("ui.playback.preview_dialog.VlcPreviewPlayer")
     def test_slider_release_uses_known_duration_when_vlc_length_is_unavailable(self, mock_vlc_cls, _mock_duration):
         parent = MagicMock()
         player = MagicMock()
@@ -738,8 +738,8 @@ class PreviewDialogTests(unittest.TestCase):
 
         player.set_time.assert_called_once_with(60000, unlock=True)
 
-    @patch("ui.preview_dialog.get_video_duration_seconds", return_value=120.0)
-    @patch("ui.preview_dialog.VlcPreviewPlayer")
+    @patch("ui.playback.preview_dialog.get_video_duration_seconds", return_value=120.0)
+    @patch("ui.playback.preview_dialog.VlcPreviewPlayer")
     def test_sync_ui_holds_pending_seek_position_during_zero_time_flash(self, mock_vlc_cls, _mock_duration):
         parent = MagicMock()
         player = MagicMock()

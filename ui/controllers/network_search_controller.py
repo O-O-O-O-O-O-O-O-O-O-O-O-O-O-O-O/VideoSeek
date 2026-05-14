@@ -7,8 +7,8 @@ from src.services.remote_library_service import (
     get_remote_library_status,
     import_remote_library_zip,
 )
-from ui.network_build_presenter import format_build_finished_status, format_build_progress_text
-from ui.table_views import populate_network_result_table
+from ui.presenters.network_build_presenter import format_build_finished_status, format_build_progress_text
+from ui.views.table_views import populate_network_result_table
 from ui.threading_utils import shutdown_thread
 from ui.workers import RemoteLibraryBuildWorker, RemoteSearchWorker
 

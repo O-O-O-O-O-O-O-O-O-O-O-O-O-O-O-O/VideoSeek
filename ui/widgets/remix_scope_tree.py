@@ -64,7 +64,6 @@ class RemixScopeTreeWidget(QWidget):
         self.setObjectName("RemixScopeTree")
         self._silent = False
         self._blocks: list[_LibBlock] = []
-        self._tree_header: str | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -97,11 +96,8 @@ class RemixScopeTreeWidget(QWidget):
                 out.append(os.path.normpath(block.lib_path))
         return out
 
-    def set_header_labels(self, name_col: str, _unused_second: str | None = None) -> None:
-        """One visible column: node name; hover shows indexed relative path (and file path for videos)."""
-        self._tree_header = name_col
-        for block in self._blocks:
-            block.tree.setHeaderLabels([name_col])
+    def set_header_labels(self, _name_col: str, _unused_second: str | None = None) -> None:
+        """Kept for API compatibility with `MainWindow.apply_texts`; the tree header row is not shown."""
 
     def refresh_from_entries(
         self,
@@ -143,10 +139,6 @@ class RemixScopeTreeWidget(QWidget):
             self._vbox.addWidget(card)
 
         self._vbox.addStretch(1)
-        if self._tree_header is not None:
-            h = self._tree_header
-            for block in self._blocks:
-                block.tree.setHeaderLabels([h])
 
         if checked_abs_paths is not None:
             wanted = {os.path.normpath(p) for p in checked_abs_paths if str(p).strip()}
@@ -159,6 +151,11 @@ class RemixScopeTreeWidget(QWidget):
             w = item.widget()
             if w is not None:
                 w.deleteLater()
+
+    def apply_checked_paths(self, wanted_abs_paths: Iterable[str]) -> None:
+        """Update checkboxes from absolute paths without rebuilding the scope UI."""
+        wanted_norm = {os.path.normpath(str(p)) for p in wanted_abs_paths if str(p).strip()}
+        self._apply_abs_path_checks(wanted_norm)
 
     def _apply_abs_path_checks(self, wanted_norm: set[str]) -> None:
         """Set each video row checked iff its absolute path is in wanted_norm; sync folder tri-state and library checkboxes."""
@@ -370,11 +367,7 @@ class RemixScopeTreeWidget(QWidget):
         tree = QTreeWidget()
         tree.setObjectName("RemixScopeLibTree")
         tree.setColumnCount(1)
-        hdr = self._tree_header
-        if hdr:
-            tree.setHeaderLabels([hdr])
-        else:
-            tree.setHeaderLabels([""])
+        tree.setHeaderLabels([""])
         tree.setRootIsDecorated(True)
         tree.setAnimated(True)
         tree.setIndentation(22)
@@ -387,7 +380,7 @@ class RemixScopeTreeWidget(QWidget):
         tree.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         hh = tree.header()
         hh.setSectionResizeMode(0, QHeaderView.Stretch)
-        tree.setHeaderHidden(False)
+        tree.setHeaderHidden(True)
 
         video_items: list[QTreeWidgetItem] = []
         self._fill_trie_into_tree(tree, None, trie, "", default_on, video_items)
@@ -536,3 +529,14 @@ class RemixScopeTreeWidget(QWidget):
                     if p:
                         out.append(os.path.normpath(str(p)))
         return out
+
+    def scope_selection_counts(self) -> tuple[int, int]:
+        """(checked_video_count, libraries_with_at_least_one_checked_video)."""
+        n_videos = 0
+        n_libs = 0
+        for block in self._blocks:
+            c = sum(1 for it in block.video_items if it.checkState(0) == Qt.CheckState.Checked)
+            if c:
+                n_libs += 1
+                n_videos += c
+        return n_videos, n_libs

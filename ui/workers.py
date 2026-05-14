@@ -20,7 +20,7 @@ from src.services.remix_match_service import run_remix_match
 from src.services.search_service import warmup_search_runtime
 from src.services.remote_search_service import run_remote_search
 from src.services.version_service import get_version_status
-from ui.vlc_player import warmup_vlc_runtime
+from ui.playback.vlc_player import warmup_vlc_runtime
 
 logger = get_logger("workers")
 

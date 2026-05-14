@@ -11,7 +11,7 @@ from src.utils import (
     get_video_duration_seconds,
     start_export_original_clip_process,
 )
-from ui.vlc_player import VlcPreviewPlayer
+from ui.playback.vlc_player import VlcPreviewPlayer
 from ui.workers import PreviewWarmupWorker
 
 

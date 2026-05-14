@@ -12,7 +12,7 @@ if __name__ == "__main__":
 
     from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
     from src.storage.migration_runner import run_startup_migration
-    from ui.gui import MainWindow
+    from ui.windows.gui import MainWindow
 
     app = QApplication(sys.argv)
 

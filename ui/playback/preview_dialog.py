@@ -6,7 +6,7 @@ from PySide6.QtCore import QThread, Qt, QTimer, Signal
 from PySide6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
 
 from src.utils import get_video_duration_seconds
-from ui.vlc_player import VlcPreviewPlayer
+from ui.playback.vlc_player import VlcPreviewPlayer
 
 
 class ExportCancelledError(Exception):
@@ -107,8 +107,8 @@ class PreviewDialog(QDialog):
         layout.setSpacing(10)
 
         self.video_host = QWidget()
+        self.video_host.setObjectName("VideoContainer")
         self.video_host.setMinimumHeight(620)
-        self.video_host.setStyleSheet("background-color: black;")
         layout.addWidget(self.video_host, 1)
 
         info_row = QHBoxLayout()

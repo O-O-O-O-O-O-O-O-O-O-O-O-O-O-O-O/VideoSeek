@@ -1,4 +1,4 @@
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -21,14 +21,14 @@ from src.utils import (
 from ui.widgets.layout import WINDOW_SIZES, apply_dialog_size
 
 from .app_message import AppMessageDialog
-from .common import dialog_palette
+
 
 class SamplingRulesDialog(QDialog):
     def __init__(self, parent=None, is_dark=True, language="zh", rules_text=""):
         super().__init__(parent)
         self.language = language
         self.texts = get_texts(language)
-        palette = dialog_palette(is_dark)
+        self._is_dark = bool(is_dark)
         self._rules_text = normalize_sampling_fps_rules_text(rules_text)
 
         self.setWindowTitle(self.texts["sampling_rules_title"])
@@ -39,72 +39,19 @@ class SamplingRulesDialog(QDialog):
             WINDOW_SIZES["notice_dialog"]["screen_margin"],
         )
         self.setModal(True)
-        self.setStyleSheet(
-            f"""
-            QDialog {{ background: {palette['bg']}; }}
-            QLabel {{ color: {palette['text']}; background: transparent; }}
-            #Hint {{ color: {palette['muted']}; font-size: 12px; }}
-            QTableWidget {{
-                background: {palette['card']};
-                color: {palette['text']};
-                border: 1px solid {palette['border']};
-                border-radius: 12px;
-                gridline-color: {palette['border']};
-                alternate-background-color: {"#202a3b" if is_dark else "#f7f9fd"};
-            }}
-            QTableWidget::item {{
-                padding: 6px 8px;
-                border: none;
-                border-bottom: 1px solid {palette['border']};
-            }}
-            QTableWidget::item:hover {{
-                background: {"#2a3a57" if is_dark else "#eef4ff"};
-                color: {palette['text']};
-                border-bottom: 1px solid {palette['border']};
-            }}
-            QTableWidget::item:selected {{
-                background: {"#35507c" if is_dark else "#dce8ff"};
-                color: {palette['text']};
-                border-bottom: 1px solid {palette['border']};
-            }}
-            QTableWidget QLineEdit {{
-                background: {palette['card']};
-                color: {palette['text']};
-                border: 1px solid {palette['accent']};
-                border-radius: 6px;
-                padding: 2px 6px;
-                selection-background-color: {"#35507c" if is_dark else "#dce8ff"};
-                selection-color: {palette['text']};
-            }}
-            QHeaderView::section {{
-                color: {palette['muted']};
-                background: {palette['card']};
-                border: none;
-                border-bottom: 1px solid {palette['border']};
-                padding: 10px 8px;
-            }}
-            QPushButton {{
-                border-radius: 10px;
-                border: 1px solid {palette['border']};
-                padding: 8px 12px;
-                color: {palette['text']};
-                background: {palette['card']};
-            }}
-            #Primary {{ background: {palette['accent']}; color: white; border-color: {palette['accent']}; }}
-            """
-        )
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(10)
 
         title = QLabel(self.texts["sampling_rules_title"])
-        title.setStyleSheet("font-size: 18px; font-weight: 700;")
+        title.setObjectName("DialogSectionTitle")
         hint = QLabel(self.texts["sampling_rules_hint"])
         hint.setObjectName("Hint")
         hint.setWordWrap(True)
 
         self.table = QTableWidget(0, 3)
+        self.table.setObjectName("DialogRulesTable")
         self.table.setHorizontalHeaderLabels(
             [
                 self.texts["sampling_rules_col_start"],
@@ -125,15 +72,18 @@ class SamplingRulesDialog(QDialog):
         self.empty_hint.setWordWrap(True)
         toolbar.addWidget(self.empty_hint, 1)
         self.btn_add = QPushButton(self.texts["sampling_rules_add"])
+        self.btn_add.setObjectName("GhostButton")
         self.btn_remove = QPushButton(self.texts["sampling_rules_remove"])
+        self.btn_remove.setObjectName("GhostButton")
         toolbar.addWidget(self.btn_add)
         toolbar.addWidget(self.btn_remove)
 
         actions = QHBoxLayout()
         actions.addStretch()
         self.btn_cancel = QPushButton(self.texts["cancel"])
+        self.btn_cancel.setObjectName("GhostButton")
         self.btn_apply = QPushButton(self.texts["sampling_rules_apply"])
-        self.btn_apply.setObjectName("Primary")
+        self.btn_apply.setObjectName("PrimaryButton")
         actions.addWidget(self.btn_cancel)
         actions.addWidget(self.btn_apply)
 
@@ -198,7 +148,7 @@ class SamplingRulesDialog(QDialog):
                     self.texts["sampling_rules_invalid_row"].format(row=row + 1),
                     kind="warning",
                     parent=self,
-                    is_dark="#161c28" in self.styleSheet(),
+                    is_dark=self._is_dark,
                     language=self.language,
                 ).exec()
                 return
@@ -224,7 +174,7 @@ class SamplingRulesDialog(QDialog):
                 message,
                 kind="warning",
                 parent=self,
-                is_dark="#161c28" in self.styleSheet(),
+                is_dark=self._is_dark,
                 language=self.language,
             ).exec()
             return
@@ -234,4 +184,3 @@ class SamplingRulesDialog(QDialog):
 
     def rules_text(self):
         return self._rules_text
-

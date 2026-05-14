@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 
 from src.app.i18n import get_texts
 
-from .common import SortableTableWidgetItem, dialog_palette
+from .common import SortableTableWidgetItem
 
 class ResourceTableDialog(QDialog):
     def __init__(
@@ -65,107 +65,16 @@ class ResourceTableDialog(QDialog):
         self.filtered_rows = list(self.rows)
         self.filtered_payloads = list(self.row_payloads)
 
-        palette = dialog_palette(is_dark)
         self.setWindowTitle(title or self.texts["details_title_default"])
         self.setMinimumSize(860, 540)
         self.resize(1040, 640)
-        self.setStyleSheet(
-            f"""
-            QDialog {{ background: {palette['bg']}; }}
-            QLabel {{ color: {palette['text']}; background: transparent; }}
-            #Hint {{ color: {palette['muted']}; font-size: 12px; }}
-            #Title {{ color: {palette['text']}; font-size: 20px; font-weight: 800; }}
-            #ToolbarCard, #DetailsCard, #StatusCard {{
-                background: {palette['card']};
-                border: 1px solid {palette['border']};
-                border-radius: 14px;
-            }}
-            #SummaryCard {{
-                background: {palette['card']};
-                border: 1px solid {palette['border']};
-                border-radius: 12px;
-                padding: 8px 10px;
-            }}
-            #SummaryValue {{ color: {palette['text']}; font-size: 16px; font-weight: 800; }}
-            #SummaryLabel {{ color: {palette['muted']}; font-size: 11px; }}
-            QLineEdit {{
-                background: {palette['card']};
-                color: {palette['text']};
-                border: 1px solid {palette['border']};
-                border-radius: 10px;
-                padding: 8px 10px;
-            }}
-            QLineEdit:focus {{ border-color: {palette['accent']}; }}
-            QCheckBox {{ color: {palette['muted']}; spacing: 6px; }}
-            QTableWidget {{
-                background: {palette['card']};
-                color: {palette['text']};
-                border: 1px solid {palette['border']};
-                border-radius: 12px;
-                alternate-background-color: {"#202a3b" if is_dark else "#f7f9fd"};
-                selection-background-color: {"#314664" if is_dark else "#dfeaf8"};
-                selection-color: {palette['text']};
-                outline: none;
-            }}
-            QTableWidget::item {{
-                padding: 6px 8px;
-                border: none;
-                border-bottom: 1px solid {palette['border']};
-            }}
-            QTableWidget::item:hover {{
-                background: transparent;
-                color: {palette['text']};
-                border-bottom: 1px solid {palette['border']};
-            }}
-            QTableWidget::item:selected {{
-                background: {"#314664" if is_dark else "#dfeaf8"};
-                color: {palette['text']};
-                border-bottom: 1px solid {palette['border']};
-            }}
-            QTableWidget::item:selected:active {{
-                background: {"#395274" if is_dark else "#d3e3f7"};
-                color: {palette['text']};
-                border-bottom: 1px solid {palette['border']};
-            }}
-            QTableWidget::item:selected:!active {{
-                background: {"#2b3d57" if is_dark else "#e6eef9"};
-                color: {palette['text']};
-                border-bottom: 1px solid {palette['border']};
-            }}
-            QHeaderView::section {{
-                color: {palette['muted']};
-                background: {palette['card']};
-                border: none;
-                border-bottom: 1px solid {palette['border']};
-                padding: 10px 8px;
-                font-weight: 700;
-            }}
-            QPlainTextEdit {{
-                background: {palette['bg']};
-                color: {palette['text']};
-                border: 1px solid {palette['border']};
-                border-radius: 10px;
-                padding: 10px;
-                font-family: Consolas, 'Microsoft YaHei UI';
-                font-size: 12px;
-            }}
-            QPushButton {{
-                border-radius: 10px;
-                border: 1px solid {palette['border']};
-                padding: 8px 12px;
-                color: {palette['text']};
-                background: {palette['card']};
-            }}
-            #Primary {{ background: {palette['accent']}; color: white; border-color: {palette['accent']}; }}
-            """
-        )
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(10)
 
         title_label = QLabel(title or self.texts["details_title_default"])
-        title_label.setObjectName("Title")
+        title_label.setObjectName("DialogPageTitle")
         subtitle_label = QLabel(subtitle)
         subtitle_label.setObjectName("Hint")
         subtitle_label.setWordWrap(True)
@@ -182,6 +91,7 @@ class ResourceTableDialog(QDialog):
         self.input_filter.setPlaceholderText(self.texts["details_filter_placeholder"])
         self.toggle_issues = QCheckBox(self.texts["details_show_issues"])
         self.btn_reset_filter = QPushButton(self.texts["details_reset_filter"])
+        self.btn_reset_filter.setObjectName("GhostButton")
         self.toggle_issues.setVisible(callable(self.issue_row_predicate))
         filter_row.addWidget(self.input_filter, 1)
         filter_row.addWidget(self.toggle_issues)
@@ -205,6 +115,7 @@ class ResourceTableDialog(QDialog):
         toolbar_layout.addWidget(self.summary_hint)
 
         self.table = QTableWidget(0, len(self.headers))
+        self.table.setObjectName("ResourceDialogTable")
         self.table.setHorizontalHeaderLabels(self.headers)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -226,11 +137,12 @@ class ResourceTableDialog(QDialog):
         details_layout.setContentsMargins(14, 12, 14, 12)
         details_layout.setSpacing(6)
         details_title = QLabel(self._inline_text("选中项详情", "Selected Details"))
-        details_title.setStyleSheet("font-size: 14px; font-weight: 700;")
+        details_title.setObjectName("DialogInlineTitle")
         details_hint = QLabel(self._inline_text("只显示当前选中行的关键信息。", "Shows the key fields for the selected row."))
         details_hint.setObjectName("Hint")
         details_hint.setWordWrap(True)
         self.details_text = QPlainTextEdit()
+        self.details_text.setObjectName("DialogPlainBody")
         self.details_text.setReadOnly(True)
         self.details_text.setMaximumHeight(96)
         details_layout.addWidget(details_title)
@@ -254,7 +166,7 @@ class ResourceTableDialog(QDialog):
         self.btn_copy_row = QPushButton(self._inline_text("复制选中行", "Copy Selected"))
         self.btn_cancel = QPushButton(self.texts["cancel"])
         self.btn_close = QPushButton(self.texts["close"])
-        self.btn_close.setObjectName("Primary")
+        self.btn_close.setObjectName("PrimaryButton")
         button_row.addWidget(self.btn_copy)
         button_row.addWidget(self.btn_export)
         button_row.addWidget(self.btn_copy_row)
@@ -264,6 +176,7 @@ class ResourceTableDialog(QDialog):
             button_row.addWidget(button)
         button_row.addStretch()
         if self.confirm_mode:
+            self.btn_cancel.setObjectName("GhostButton")
             button_row.addWidget(self.btn_cancel)
             self.btn_close.setText(self.confirm_text)
         button_row.addWidget(self.btn_close)

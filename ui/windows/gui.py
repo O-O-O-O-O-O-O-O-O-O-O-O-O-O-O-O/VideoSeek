@@ -1,17 +1,15 @@
-import os
 from collections import deque
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
-from PySide6.QtWidgets import QApplication, QFileDialog, QFrame, QMainWindow, QMessageBox, QScrollArea, QStackedWidget, \
+from PySide6.QtWidgets import QApplication, QFileDialog, QFrame, QMainWindow, QScrollArea, QStackedWidget, \
     QVBoxLayout, QWidget, QHBoxLayout
 
 from src.app.config import (
     DEFAULT_CONFIG,
     get_app_version,
-    get_configured_data_root,
     load_config,
     pop_migration_notice,
     save_config,
@@ -25,31 +23,29 @@ from src.services.notice_service import get_local_notice_payload
 from src.services.query_text_service import prepare_text_query
 from src.web.display_qr import build_qr_pixmap
 from src.utils import (
-    open_folder_in_explorer,
     open_in_explorer,
     sync_ffmpeg_path_to_config,
     sync_model_dir_to_config,
 )
 from src.services.version_service import get_local_version_status
-from ui.app_meta_controller import AppMetaController
+from ui.controllers.app_meta_controller import AppMetaController
 from ui.widgets.components import LibraryPage, LinkSearchPage, NavigationSidebar, RemixMatchPage, SearchPage, SettingsPage
-from ui.dialogs import AboutDialog, AppMessageDialog, MobileBridgeDialog, NoticeDialog, ResourceTableDialog
-from ui.indexing_controller import IndexingController
+from ui.dialogs import AboutDialog, AppMessageDialog, MobileBridgeDialog, NoticeDialog
+from ui.controllers.indexing_controller import IndexingController
 from ui.widgets.layout import WINDOW_SIZES, apply_window_size
-from ui.mobile_bridge_controller import MobileBridgeController
-from ui.network_search_controller import NetworkSearchController
-from ui.preview_controller import PreviewController
-from ui.runtime_resource_controller import RuntimeResourceController
-from ui.search_controller import SearchController
+from ui.controllers.mobile_bridge_controller import MobileBridgeController
+from ui.controllers.network_search_controller import NetworkSearchController
+from ui.controllers.preview_controller import PreviewController
+from ui.controllers.runtime_resource_controller import RuntimeResourceController
+from ui.controllers.search_controller import SearchController
 from ui.widgets.styles import DARK_STYLE, LIGHT_STYLE
-from ui.table_views import populate_result_table
-from ui.gui_remix import RemixGuiMixin
-from ui.gui_settings import SettingsGuiMixin
-from ui.gui_preview import PreviewGuiMixin
-from ui.gui_library_indexing import LibraryIndexingGuiMixin
-from ui.gui_vector_network import VectorNetworkGuiMixin
-from ui.gui_runtime import RuntimeGuiMixin
-from ui.gui_model_packages import ModelPackagesGuiMixin
+from ui.windows.gui_remix import RemixGuiMixin
+from ui.windows.gui_settings import SettingsGuiMixin
+from ui.windows.gui_preview import PreviewGuiMixin
+from ui.windows.gui_library_indexing import LibraryIndexingGuiMixin
+from ui.windows.gui_vector_network import VectorNetworkGuiMixin
+from ui.windows.gui_runtime import RuntimeGuiMixin
+from ui.windows.gui_model_packages import ModelPackagesGuiMixin
 
 
 class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, LibraryIndexingGuiMixin, VectorNetworkGuiMixin, RuntimeGuiMixin, ModelPackagesGuiMixin):
@@ -75,6 +71,7 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         self.remix_worker = None
         self._remix_thumb_thread = None
         self._remix_scope_restore_selection = False
+        self._remix_scope_entries_cache: list = []
         self._ffmpeg_imported_with_package = False
         self._settings_dirty = False
         self._settings_loading = False
@@ -211,6 +208,7 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         self.remix_page.btn_scope_all.clicked.connect(self._remix_scope_select_all)
         self.remix_page.btn_scope_none.clicked.connect(self._remix_scope_select_none)
         self.remix_page.btn_open_remix_cache.clicked.connect(self.open_remix_embed_cache_folder)
+        self.remix_page.btn_edit_scope.clicked.connect(self.open_remix_scope_editor)
 
         self.library_page.btn_add_lib.clicked.connect(self.select_video_folder)
         self.library_page.btn_sync_db.clicked.connect(self.start_update_index)
@@ -370,17 +368,13 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
 
         self.remix_page.header.title.setText(t["remix_page_title"])
         self.remix_page.header.subtitle.setText(t["remix_page_desc"])
-        self.remix_page.mix_label.setText(t["remix_mix_video"])
+        self.remix_page.mix_label.setText(t.get("remix_source_card_title", t["remix_mix_video"]))
         self.remix_page.section_params_title.setText(t.get("remix_section_params", ""))
         self.remix_page.mix_hint.setText(t["remix_mix_hint"])
         self.remix_page.input_mix_path.setPlaceholderText(t.get("remix_mix_path_placeholder", ""))
         self.remix_page.btn_browse_mix.setText(t["remix_browse"])
         self.remix_page.configure_remix_params(t)
-        self.remix_page.scope_title.setText(t["remix_scope_title"])
-        self.remix_page.scope_table_hint.setText(t["remix_scope_table_hint"])
-        self.remix_page.scope_tree.set_header_labels(t["remix_scope_tree_name_col"])
-        self.remix_page.btn_scope_all.setText(t["remix_select_all"])
-        self.remix_page.btn_scope_none.setText(t["remix_select_none"])
+        self.remix_page.configure_remix_scope_section(t)
         self.remix_page.btn_run.setText(t["remix_run"])
         self.remix_page.btn_stop.setText(t["remix_stop"])
         self.remix_page.btn_clear.setText(t["remix_clear"])

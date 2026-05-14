@@ -12,8 +12,9 @@ from src.app.config import load_config
 from src.services.library_service import list_local_vector_details
 from src.services.remix_embedding_cache import get_remix_embed_cache_dir
 from src.utils import open_folder_in_explorer
-from ui.remix_compare_dialog import RemixCompareDialog
-from ui.table_views import populate_remix_result_table
+from ui.dialogs.remix_scope_editor import RemixScopeEditorDialog
+from ui.playback.remix_compare_dialog import RemixCompareDialog
+from ui.views.table_views import populate_remix_result_table
 from ui.workers import RemixMatchWorker, ThumbLoader
 
 
@@ -54,18 +55,30 @@ class RemixGuiMixin:
             except Exception:
                 prev_expanded = None
         entries = detail.get("entries", [])
+        self._remix_scope_entries_cache = list(entries)
         w.refresh_from_entries(entries, checked_abs_paths=prev_paths, expanded_lib_paths=prev_expanded)
         if w.total_video_items() > 0:
             self._remix_scope_restore_selection = True
         self.remix_page._sync_remix_disclosure_headers()
-        if self.remix_page._scope_list_expanded:
-            QTimer.singleShot(0, self.remix_page.scope_tree.reflow_all_lib_trees)
+        QTimer.singleShot(0, self.remix_page.scope_tree.reflow_all_lib_trees)
+        self.remix_page.refresh_scope_summary(self.texts)
 
     def _remix_scope_select_all(self):
         self.remix_page.scope_tree.select_all_videos()
 
     def _remix_scope_select_none(self):
         self.remix_page.scope_tree.select_no_videos()
+
+    def open_remix_scope_editor(self):
+        dlg = RemixScopeEditorDialog(
+            self,
+            self.remix_page,
+            self.texts,
+            is_dark=self.is_dark_mode,
+            entries_cache_getter=lambda: getattr(self, "_remix_scope_entries_cache", []),
+        )
+        dlg.exec()
+        QTimer.singleShot(0, self.remix_page.scope_tree.reflow_all_lib_trees)
 
     def clear_remix_match_ui(self):
         from ui.threading_utils import shutdown_thread
