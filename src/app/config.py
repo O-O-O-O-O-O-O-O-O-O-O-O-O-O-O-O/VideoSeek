@@ -195,12 +195,33 @@ def _normalize_storage_paths(config, config_base_dir):
     return normalized
 
 
+def _derived_storage_paths_from_layout(storage_paths: dict) -> dict:
+    """Paths under ``<data_root>/data/`` derived from ``meta_file`` (same layout as ``get_data_storage_paths``).
+
+    Keeps preview/mobile/link caches aligned with the active data tree when ``data_root`` changes
+    (e.g. data-root migration) so config does not retain a stale ``preview_cache_dir``.
+    """
+    data_dir = os.path.dirname(storage_paths["meta_file"])
+    return {
+        "data_dir": data_dir,
+        "global_dir": os.path.join(data_dir, "global"),
+        "remote_dir": os.path.join(data_dir, "remote"),
+        "preview_cache_dir": os.path.join(data_dir, "cache"),
+        "mobile_upload_dir": os.path.join(data_dir, "mobile_uploads"),
+        "remote_build_cache_dir": os.path.join(data_dir, "remote_build_cache"),
+        "link_cache_dir": os.path.join(data_dir, "link_cache"),
+        "remote_build_report_file": os.path.join(data_dir, "remote", "build_report.json"),
+    }
+
+
 def _apply_data_root_storage_paths(config):
     normalized = dict(config)
     data_root = str(normalized.get("data_root", "") or "").strip()
     if not data_root:
         return normalized
-    normalized.update(build_data_storage_paths(data_root))
+    storage_paths = build_data_storage_paths(data_root)
+    normalized.update(storage_paths)
+    normalized.update(_derived_storage_paths_from_layout(storage_paths))
     return normalized
 
 
@@ -451,18 +472,7 @@ def get_configured_data_root(config=None):
 def get_data_storage_paths(config=None):
     data_root = get_configured_data_root(config)
     storage_paths = build_data_storage_paths(data_root)
-    data_dir = os.path.dirname(storage_paths["meta_file"])
-    derived_paths = {
-        "data_dir": data_dir,
-        "global_dir": os.path.join(data_dir, "global"),
-        "remote_dir": os.path.join(data_dir, "remote"),
-        "preview_cache_dir": os.path.join(data_dir, "cache"),
-        "mobile_upload_dir": os.path.join(data_dir, "mobile_uploads"),
-        "remote_build_cache_dir": os.path.join(data_dir, "remote_build_cache"),
-        "link_cache_dir": os.path.join(data_dir, "link_cache"),
-        "remote_build_report_file": os.path.join(data_dir, "remote", "build_report.json"),
-    }
-    storage_paths.update(derived_paths)
+    storage_paths.update(_derived_storage_paths_from_layout(storage_paths))
     return storage_paths
 
 

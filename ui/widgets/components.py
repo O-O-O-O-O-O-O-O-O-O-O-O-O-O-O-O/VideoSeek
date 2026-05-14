@@ -29,41 +29,42 @@ from ui.widgets.remix_scope_tree import RemixScopeTreeWidget
 from ui.widgets.styles import repolish_widget
 
 # Remix match parameter presets (see remix_preset_guide_* in i18n).
+# Tuned for industrial-style QC: favor precision and stable line fits over marginal speed.
 REMIX_PRESETS = {
     "strict": {
         "sample_fps": 2.0,
-        "score_threshold": 0.30,
-        "merge_gap": 2.0,
-        "min_segment": 1.5,
-        "remix_cluster_gap": 2.0,
-        "faiss_top_k": 40,
-        "speed_min": 0.30,
-        "speed_max": 4.0,
-        "ransac_iters": 512,
-        "min_line_points": 3,
+        "score_threshold": 0.33,
+        "merge_gap": 1.75,
+        "min_segment": 2.5,
+        "remix_cluster_gap": 1.75,
+        "faiss_top_k": 36,
+        "speed_min": 0.35,
+        "speed_max": 3.5,
+        "ransac_iters": 1024,
+        "min_line_points": 4,
     },
     "standard": {
         "sample_fps": 2.0,
-        "score_threshold": 0.26,
-        "merge_gap": 2.5,
-        "min_segment": 1.5,
-        "remix_cluster_gap": 2.5,
-        "faiss_top_k": 48,
-        "speed_min": 0.25,
-        "speed_max": 4.0,
-        "ransac_iters": 384,
-        "min_line_points": 2,
+        "score_threshold": 0.28,
+        "merge_gap": 2.15,
+        "min_segment": 2.0,
+        "remix_cluster_gap": 2.1,
+        "faiss_top_k": 44,
+        "speed_min": 0.28,
+        "speed_max": 3.5,
+        "ransac_iters": 512,
+        "min_line_points": 3,
     },
     "loose": {
         "sample_fps": 2.0,
-        "score_threshold": 0.22,
-        "merge_gap": 3.0,
-        "min_segment": 0.8,
-        "remix_cluster_gap": 2.8,
-        "faiss_top_k": 64,
-        "speed_min": 0.20,
-        "speed_max": 9.0,
-        "ransac_iters": 2000,
+        "score_threshold": 0.24,
+        "merge_gap": 2.55,
+        "min_segment": 1.2,
+        "remix_cluster_gap": 2.35,
+        "faiss_top_k": 56,
+        "speed_min": 0.22,
+        "speed_max": 6.0,
+        "ransac_iters": 1536,
         "min_line_points": 2,
     },
 }
@@ -332,14 +333,14 @@ class NavigationSidebar(QWidget):
         layout.addWidget(self.hero_card)
 
         self.btn_page_search = self._build_nav_button("Search", checked=True)
-        self.btn_page_link = self._build_nav_button("Link Match")
-        self.btn_page_remix = self._build_nav_button("Remix", checked=False)
         self.btn_page_library = self._build_nav_button("Libraries")
+        self.btn_page_remix = self._build_nav_button("Remix", checked=False)
+        self.btn_page_link = self._build_nav_button("Link Match")
         self.btn_page_settings = self._build_nav_button("Settings")
         layout.addWidget(self.btn_page_search)
-        layout.addWidget(self.btn_page_link)
-        layout.addWidget(self.btn_page_remix)
         layout.addWidget(self.btn_page_library)
+        layout.addWidget(self.btn_page_remix)
+        layout.addWidget(self.btn_page_link)
         layout.addWidget(self.btn_page_settings)
         self.runtime_hint = QLabel("")
         self.runtime_hint.setObjectName("StatusLabel")

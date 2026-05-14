@@ -64,7 +64,19 @@ class RemixGuiMixin:
         self.remix_page.refresh_scope_summary(self.texts)
 
     def _remix_scope_select_all(self):
-        self.remix_page.scope_tree.select_all_videos()
+        w = self.remix_page.scope_tree
+        total = w.total_video_items()
+        if total <= 0:
+            return
+        t = self.texts
+        title = t.get("remix_scope_select_all_confirm_title", t.get("confirm_title", ""))
+        body_tpl = t.get(
+            "remix_scope_select_all_confirm_body",
+            "About to check {count} indexed videos. Full-library remix matching is very slow. Continue?",
+        )
+        if not self.show_confirm_dialog(title, body_tpl.format(count=total), kind="warning"):
+            return
+        w.select_all_videos()
 
     def _remix_scope_select_none(self):
         self.remix_page.scope_tree.select_no_videos()

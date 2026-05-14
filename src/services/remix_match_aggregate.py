@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import os
 import random
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from src.domain.remix_search_hit import RemixSearchHit
 
@@ -197,6 +197,7 @@ def aggregate_match_points_to_segments(
     speed_max: float = 4.0,
     ransac_iterations: int = 384,
     random_seed: Optional[int] = None,
+    should_stop: Optional[Callable[[], bool]] = None,
 ) -> List[RemixSearchHit]:
     """
     ``merge_gap_sec`` — max |src - (k*ref + b)| for RANSAC inliers (line residual, seconds).
@@ -232,12 +233,16 @@ def aggregate_match_points_to_segments(
 
     hits: List[RemixSearchHit] = []
     for _, rows in sorted(_group_points_by_path(flat).items(), key=lambda kv: kv[0]):
+        if should_stop is not None and should_stop():
+            raise InterruptedError("Remix match stopped by user.")
         pts = _dedupe_best_score_per_ref(list(rows))
         if len(pts) < min_points:
             continue
         pool = list(pts)
         iters = max(ransac_iterations, 32)
         while len(pool) >= min_points:
+            if should_stop is not None and should_stop():
+                raise InterruptedError("Remix match stopped by user.")
             fit = _ransac_best_line(
                 pool,
                 residual_sec=float(merge_gap_sec),

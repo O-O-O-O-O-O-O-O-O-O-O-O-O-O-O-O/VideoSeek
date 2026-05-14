@@ -52,10 +52,18 @@ def _cache_key_dict(
 
 
 def get_remix_embed_cache_dir(config: Optional[dict] = None) -> str:
-    """Root directory for remix CLIP embedding cache files (…/remix_embed)."""
+    """Root for remix CLIP caches: ``<data_dir>/cache/remix_embed`` (``data_dir`` = dirname(meta.json)).
+
+    Resolved from the active data tree (``data_root`` → ``data``), not from any stale ``preview_cache_dir``
+    string that might still exist in an older config file.
+    """
     cfg = dict(config or load_config())
     paths = get_data_storage_paths(config=cfg)
-    base = str(paths.get("preview_cache_dir", "") or "").strip()
+    data_dir = str(paths.get("data_dir") or "").strip()
+    if data_dir:
+        base = os.path.join(data_dir, "cache")
+    else:
+        base = str(paths.get("preview_cache_dir", "") or "").strip()
     if not base:
         from src.utils import get_app_data_dir
 

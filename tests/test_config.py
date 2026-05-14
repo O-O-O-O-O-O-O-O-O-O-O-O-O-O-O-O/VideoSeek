@@ -223,6 +223,8 @@ class ConfigMigrationTests(unittest.TestCase):
             self.assertEqual(loaded["data_root"], str(target_root))
             self.assertEqual(loaded["meta_file"], str(target_root / "data" / "meta.json"))
             self.assertEqual(loaded["vector_dir"], str(target_root / "data" / "vector"))
+            self.assertEqual(loaded["data_dir"], str(target_root / "data"))
+            self.assertEqual(loaded["preview_cache_dir"], str(target_root / "data" / "cache"))
 
     def test_get_data_storage_paths_includes_remote_cache_dirs(self):
         with tempfile.TemporaryDirectory() as temp_dir:

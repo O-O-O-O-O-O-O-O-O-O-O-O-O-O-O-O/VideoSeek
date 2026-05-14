@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from ui.playback.vlc_player import VlcPreviewPlayer, create_vlc_preview_instance
@@ -51,7 +51,8 @@ class RemixCompareDialog(QDialog):
 
         left_col = QVBoxLayout()
         self.lbl_left = QLabel()
-        self.lbl_left.setObjectName("CardHint")
+        self.lbl_left.setObjectName("RemixComparePanelRemix")
+        self.lbl_left.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.remix_host = QWidget()
         self.remix_host.setObjectName("VideoContainer")
         self.remix_host.setMinimumHeight(320)
@@ -60,7 +61,8 @@ class RemixCompareDialog(QDialog):
 
         right_col = QVBoxLayout()
         self.lbl_right = QLabel()
-        self.lbl_right.setObjectName("CardHint")
+        self.lbl_right.setObjectName("RemixComparePanelSource")
+        self.lbl_right.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.source_host = QWidget()
         self.source_host.setObjectName("VideoContainer")
         self.source_host.setMinimumHeight(320)
@@ -107,8 +109,8 @@ class RemixCompareDialog(QDialog):
         return float(end_sec)
 
     def _apply_texts(self, texts: dict):
-        self.lbl_left.setText(texts.get("remix_compare_panel_remix", "Remix"))
-        self.lbl_right.setText(texts.get("remix_compare_panel_source", "Source"))
+        self.lbl_left.setText(texts.get("remix_compare_panel_remix", "Remix video"))
+        self.lbl_right.setText(texts.get("remix_compare_panel_source", "Source video"))
         self.btn_play.setText(texts.get("remix_compare_play", "Play"))
         self.btn_close.setText(texts.get("remix_compare_close", "Close"))
 

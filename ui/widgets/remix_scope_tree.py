@@ -103,7 +103,7 @@ class RemixScopeTreeWidget(QWidget):
         self,
         entries: Iterable[dict],
         *,
-        default_checked: bool = True,
+        default_checked: bool = False,
         checked_abs_paths: Iterable[str] | None = None,
         expanded_lib_paths: Iterable[str] | None = None,
     ) -> None:

@@ -49,6 +49,10 @@ from ui.windows.gui_model_packages import ModelPackagesGuiMixin
 
 
 class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, LibraryIndexingGuiMixin, VectorNetworkGuiMixin, RuntimeGuiMixin, ModelPackagesGuiMixin):
+    """Sidebar / stacked widget order: local search → library → remix → remote link → settings."""
+
+    _NAV_PAGE_ORDER = ("search", "library", "remix", "link", "settings")
+
     def __init__(self):
         super().__init__()
         self.startup_cancelled = False
@@ -158,9 +162,9 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         self.library_page = LibraryPage()
         self.settings_page = SettingsPage()
         self.pages.addWidget(self._build_scroll_page(self.search_page))
-        self.pages.addWidget(self._build_scroll_page(self.link_page))
-        self.pages.addWidget(self._build_scroll_page(self.remix_page))
         self.pages.addWidget(self._build_scroll_page(self.library_page))
+        self.pages.addWidget(self._build_scroll_page(self.remix_page))
+        self.pages.addWidget(self._build_scroll_page(self.link_page))
         self.pages.addWidget(self.settings_page)
         content_layout.addWidget(self.pages)
         main_layout.addWidget(self.content, 1)
@@ -168,6 +172,13 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         self.search_page.preview_placeholder.hide()
         self.video_widget = QVideoWidget()
         self.video_widget.setAttribute(Qt.WA_NativeWindow, True)
+        # QVideoWidget is nested under QScrollArea / #PanelCard; without this, Qt may
+        # promote ancestors to QWidgetWindow and log: "must be a top level window."
+        dont_native_ancestors = getattr(
+            Qt.WidgetAttribute, "WA_DontCreateNativeAncestors", None
+        )
+        if dont_native_ancestors is not None:
+            self.video_widget.setAttribute(dont_native_ancestors, True)
         self.video_widget.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.search_page.preview_host.mouseDoubleClickEvent = self.open_current_preview_dialog
         self.search_page.preview_host_layout.addWidget(self.video_widget)
@@ -245,8 +256,11 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         scroll.setWidget(page_widget)
         return scroll
 
+    def _nav_page_index(self, page_name: str) -> int:
+        return self._NAV_PAGE_ORDER.index(page_name)
+
     def switch_page(self, page_name):
-        mapping = {"search": 0, "link": 1, "remix": 2, "library": 3, "settings": 4}
+        mapping = {name: i for i, name in enumerate(self._NAV_PAGE_ORDER)}
         prev_idx = self.pages.currentIndex()
         next_idx = mapping[page_name]
         self.pages.setCurrentIndex(next_idx)
@@ -678,7 +692,7 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         urls = event.mimeData().urls()
         if urls:
             dropped_path = urls[0].toLocalFile()
-            if self.pages.currentIndex() == 1:
+            if self.pages.currentIndex() == self._nav_page_index("link"):
                 self.upload_network_file_path(dropped_path)
                 return
             self.upload_file_path(dropped_path)

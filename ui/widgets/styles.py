@@ -8,6 +8,34 @@ QWidget {
     color: __TEXT__;
     background: transparent;
 }
+/* Opaque menus: global QWidget transparency otherwise bleeds into QMenu on
+   Windows and can cause doubled / ghosted text on line-edit context menus. */
+QMenu {
+    background-color: __PANEL__;
+    color: __HEADLINE__;
+    border: 1px solid __LINE__;
+    border-radius: 10px;
+    padding: 4px;
+}
+QMenu::item {
+    padding: 6px 22px 6px 12px;
+    background-color: __PANEL__;
+    color: __HEADLINE__;
+    border-radius: 6px;
+}
+QMenu::item:selected {
+    background-color: __ACCENT_SOFT__;
+    color: __HEADLINE__;
+}
+QMenu::item:disabled {
+    color: __MUTED__;
+    background-color: __PANEL__;
+}
+QMenu::separator {
+    height: 1px;
+    margin: 4px 10px;
+    background: __LINE__;
+}
 #AppRoot, #ContentArea {
     background: __WINDOW__;
 }
@@ -27,6 +55,24 @@ QWidget {
     min-height: 1px;
     margin-top: 2px;
     margin-bottom: 2px;
+}
+/* Remix compare dialog: role labels above each player (must not use #CardHint — it inherits muted body text). */
+#RemixComparePanelRemix, #RemixComparePanelSource {
+    color: __HEADLINE__;
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    padding: 10px 12px 12px 14px;
+    min-height: 26px;
+    background: __FIELD__;
+    border: 1px solid __LINE__;
+    border-radius: 10px;
+}
+#RemixComparePanelRemix {
+    border-left: 5px solid __ACCENT__;
+}
+#RemixComparePanelSource {
+    border-left: 5px solid __SUCCESS__;
 }
 #RemixMixPathRow {
     background: __FIELD__;

@@ -50,7 +50,7 @@ Windows 项目内 VLC 目录建议：
 - 本地视频库文本/图片语义检索。
 - 从在线链接构建并检索网络库。
 - 在应用内预览命中片段。
-- **混剪回源：**将混剪成片对齐到已索引的原片时间线（见 `docs/remix_source_match.md`）。
+- **混剪溯源：**对本地混剪成片抽帧，在已索引的本地视频库中追溯每段镜头对应的源片与时间（见 `docs/remix_source_match.md`）。
 
 ## 测试
 
@@ -70,7 +70,7 @@ python -m unittest ^
 
 - 详细安装与排障：`docs/quickstart.md`
 - 架构与模块说明：`docs/architecture.md`
-- 混剪回源功能说明：`docs/remix_source_match.md`
+- 混剪溯源功能说明：`docs/remix_source_match.md`
 
 ## 许可证
 

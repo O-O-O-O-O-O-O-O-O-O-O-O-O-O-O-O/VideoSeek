@@ -11,8 +11,8 @@ import numpy as np
 
 from src.app.config import load_config
 from src.app.logging_utils import get_logger
-from src.core.clip_embedding import get_clip_embeddings_batch, prepare_inference_runtime
-from src.core.extract_frames import stream_frames_with_ffmpeg_fixed_fps
+from src.core.clip_embedding import get_clip_embeddings_batch
+from src.core.extract_frames import stream_frames_with_ffmpeg
 from src.domain.remix_search_hit import RemixSearchHit
 from src.services.remix_embedding_cache import (
     active_profile_id_for_cache,
@@ -35,11 +35,15 @@ def _raw_points_from_normalized_vectors(
     top_k: int,
     score_threshold: float,
     path_allowed,
+    should_stop: Optional[Callable[[], bool]] = None,
+    faiss_batch_rows: int = 256,
 ) -> List[Tuple[str, float, float, float]]:
     """vectors: (N, D) float32, will be L2-normalized in place for FAISS.
 
     For each remix frame, keep the **best-scoring** hit per distinct source file among the top-K
     neighbors (so downstream RANSAC can resolve (t_remix, t_src) lines).
+
+    FAISS is queried in row batches so ``should_stop`` can abort mid-search without one giant blocking call.
     """
     raw_points: List[Tuple[str, float, float, float]] = []
     vv = np.asarray(vectors, dtype=np.float32, order="C")
@@ -51,29 +55,37 @@ def _raw_points_from_normalized_vectors(
     import faiss
 
     faiss.normalize_L2(vv)
-    distances, indices = search_index.search(vv, top_k)
-    for i in range(vv.shape[0]):
-        row_scores = distances[i]
-        row_idx = indices[i]
-        ref_t = float(tt[i])
-        per_path_best: dict[str, Tuple[float, float, str]] = {}
-        for rank in range(top_k):
-            idx = int(row_idx[rank])
-            if idx < 0 or idx >= len(video_paths):
-                continue
-            score = float(row_scores[rank])
-            if score < score_threshold:
-                break
-            path_s = str(video_paths[idx])
-            if not path_allowed(path_s):
-                continue
-            src_t = float(timestamps[idx])
-            key = normalize_match_path(path_s)
-            prev = per_path_best.get(key)
-            if prev is None or score > prev[0]:
-                per_path_best[key] = (score, src_t, path_s)
-        for _, (score, src_t, path_s) in per_path_best.items():
-            raw_points.append((path_s, src_t, score, ref_t))
+    n = int(vv.shape[0])
+    batch = max(1, int(faiss_batch_rows))
+    for start in range(0, n, batch):
+        if should_stop is not None and should_stop():
+            raise InterruptedError("Remix match stopped by user.")
+        end = min(n, start + batch)
+        sub_v = vv[start:end]
+        distances, indices = search_index.search(sub_v, top_k)
+        for ii in range(sub_v.shape[0]):
+            i = start + ii
+            row_scores = distances[ii]
+            row_idx = indices[ii]
+            ref_t = float(tt[i])
+            per_path_best: dict[str, Tuple[float, float, str]] = {}
+            for rank in range(top_k):
+                idx = int(row_idx[rank])
+                if idx < 0 or idx >= len(video_paths):
+                    continue
+                score = float(row_scores[rank])
+                if score < score_threshold:
+                    break
+                path_s = str(video_paths[idx])
+                if not path_allowed(path_s):
+                    continue
+                src_t = float(timestamps[idx])
+                key = normalize_match_path(path_s)
+                prev = per_path_best.get(key)
+                if prev is None or score > prev[0]:
+                    per_path_best[key] = (score, src_t, path_s)
+            for _, (score, src_t, path_s) in per_path_best.items():
+                raw_points.append((path_s, src_t, score, ref_t))
     return raw_points
 
 
@@ -108,7 +120,6 @@ def run_remix_match(
     if int(ransac_iterations) < 8:
         raise ValueError("ransac_iterations must be at least 8.")
 
-    prepare_inference_runtime()
     config = load_config()
 
     search_index, timestamps, video_paths = load_search_assets(config=config)
@@ -162,6 +173,7 @@ def run_remix_match(
             top_k=top_k,
             score_threshold=float(score_threshold),
             path_allowed=path_allowed,
+            should_stop=should_stop,
         )
     else:
         frame_buf = []
@@ -173,6 +185,8 @@ def run_remix_match(
             nonlocal frame_buf, ref_buf, raw_points, processed, embed_chunks, time_chunks
             if not frame_buf:
                 return
+            if should_stop is not None and should_stop():
+                raise InterruptedError("Remix match stopped by user.")
             vectors = get_clip_embeddings_batch(frame_buf)
             vectors = np.asarray(vectors, dtype=np.float32)
             if vectors.ndim != 2 or vectors.shape[1] != index_dim:
@@ -190,6 +204,7 @@ def run_remix_match(
                     top_k=top_k,
                     score_threshold=float(score_threshold),
                     path_allowed=path_allowed,
+                    should_stop=should_stop,
                 )
             )
             embed_chunks.append(vectors.copy())
@@ -198,7 +213,7 @@ def run_remix_match(
             frame_buf = []
             ref_buf = []
 
-        for frame, ref_t in stream_frames_with_ffmpeg_fixed_fps(mix_video_path, float(sample_fps)):
+        for frame, ref_t in stream_frames_with_ffmpeg(mix_video_path, fps_override=float(sample_fps)):
             if should_stop is not None and should_stop():
                 raise InterruptedError("Remix match stopped by user.")
             frame_buf.append(frame)
@@ -231,6 +246,9 @@ def run_remix_match(
     if progress_callback is not None:
         progress_callback(99, "remix_progress_aggregate")
 
+    if should_stop is not None and should_stop():
+        raise InterruptedError("Remix match stopped by user.")
+
     segments = aggregate_match_points_to_segments(
         raw_points,
         merge_gap_sec=float(merge_gap_sec),
@@ -241,6 +259,7 @@ def run_remix_match(
         speed_min=float(speed_min),
         speed_max=float(speed_max),
         ransac_iterations=int(ransac_iterations),
+        should_stop=should_stop,
     )
     logger.info(
         "Remix match finished: mix=%s frames=%s raw_hits=%s segments=%s scope_restricted=%s cache=%s",
