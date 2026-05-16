@@ -8,6 +8,7 @@ from PySide6.QtCore import QEasingCurve, QPropertyAnimation
 from PySide6.QtWidgets import QApplication, QFileDialog, QGraphicsOpacityEffect, QAbstractItemView
 
 from src.app.config import load_config
+from src.app.indexing_progress import format_progress_text
 from src.services.indexing_service import list_missing_library_files
 from src.services.library_service import (
     GLOBAL_INDEX_STATE_STALE,
@@ -241,9 +242,10 @@ class LibraryIndexingGuiMixin:
             }
             if debug_failure:
                 start_kwargs["debug_failure"] = debug_failure
-            self.indexing_controller.start(
-                **start_kwargs,
-            )
+            if self.indexing_controller.start(**start_kwargs):
+                self.ui_state.set_indexing_running(True)
+                if hasattr(self, "_sync_tray_stop_action"):
+                    self._sync_tray_stop_action()
             self._refresh_search_session_hint()
         except Exception as exc:
             self.show_error_dialog(self.texts["index_start_failed"], exc)
@@ -256,13 +258,13 @@ class LibraryIndexingGuiMixin:
             self.library_page.btn_stop_index.setEnabled(False)
 
     def _update_indexing_progress(self, value, text):
+        if hasattr(self, "_sync_tray_stop_action"):
+            self._sync_tray_stop_action()
         self.library_page.progress_bar.setValue(value)
-        self.library_page.lbl_status.setText(text)
-
-    def _apply_runtime_status(self, _status):
-        self._update_inference_backend_hint()
+        self.library_page.lbl_status.setText(format_progress_text(text, self.texts))
 
     def _finish_indexing(self, success, target_lib, stopped=False, has_search_assets=False, issues=None, rebuild_global_assets=True):
+        self.ui_state.set_indexing_running(False)
         self.library_page.btn_sync_db.setEnabled(True)
         self.library_page.btn_stop_index.setEnabled(False)
         self.library_page.btn_stop_index.setVisible(False)
@@ -272,7 +274,7 @@ class LibraryIndexingGuiMixin:
             self.library_page.btn_debug_gpu_oom.setEnabled(True)
             self.library_page.btn_debug_system_oom.setEnabled(True)
         self.library_page.progress_bar.setVisible(False)
-        self._update_inference_backend_hint()
+        self.push_inference_status()
         self.refresh_library_table()
         issue_count = len(issues or [])
         self._last_index_issues = list(issues or [])
@@ -294,13 +296,15 @@ class LibraryIndexingGuiMixin:
         self.library_page.lbl_status.setText(status_text)
         self._refresh_search_session_hint()
         self._show_index_issue_guidance(issues or [])
+        if hasattr(self, "_sync_tray_stop_action"):
+            self._sync_tray_stop_action()
         if self._close_when_indexing_stops:
             self._close_when_indexing_stops = False
             self.close()
 
     def _refresh_search_session_hint(self):
         self.search_page.session_hint.setText(self.texts.get("workspace_hint", ""))
-        indexing_running = self.indexing_controller.is_running()
+        indexing_running = self.ui_state.indexing_running
         self.search_page.indexing_notice.setVisible(indexing_running)
         if indexing_running:
             self._start_search_indexing_notice_animation()
@@ -341,6 +345,15 @@ class LibraryIndexingGuiMixin:
         issue_list = list(issues or [])
         if not issue_list:
             return
+        timestamp_issue_count = sum(1 for item in issue_list if item.get("reason") == "timestamp_drift")
+        if timestamp_issue_count > 0:
+            message = self.texts["index_issues_timestamp_guidance"].format(
+                count=timestamp_issue_count,
+                button=self.texts["index_issues_button"],
+            )
+            self.show_info_dialog(self.texts["warning_title"], message, kind="warning")
+            return
+
         gpu_issue_count = sum(1 for item in issue_list if item.get("reason") == "gpu_out_of_memory")
         system_issue_count = sum(1 for item in issue_list if item.get("reason") == "system_out_of_memory")
         if gpu_issue_count <= 0 and system_issue_count <= 0:

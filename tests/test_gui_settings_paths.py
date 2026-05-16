@@ -272,6 +272,8 @@ def _build_stub_modules():
             "NavigationSidebar": _stub_class("NavigationSidebar"),
             "RemixMatchPage": _stub_class("RemixMatchPage"),
             "SearchPage": _stub_class("SearchPage"),
+        },
+        "ui.widgets.settings": {
             "SettingsPage": _stub_class("SettingsPage"),
         },
         "ui.dialogs": {
@@ -294,7 +296,11 @@ def _build_stub_modules():
         "ui.controllers.preview_controller": {"PreviewController": _stub_class("PreviewController")},
         "ui.controllers.runtime_resource_controller": {"RuntimeResourceController": _stub_class("RuntimeResourceController")},
         "ui.controllers.search_controller": {"SearchController": _stub_class("SearchController")},
-        "ui.widgets.styles": {"DARK_STYLE": "", "LIGHT_STYLE": ""},
+        "ui.widgets.styles": {
+            "DARK_STYLE": "",
+            "LIGHT_STYLE": "",
+            "set_runtime_banner_warn": lambda *args, **kwargs: None,
+        },
         "ui.views.table_views": {
             "populate_library_table": lambda *args, **kwargs: None,
             "populate_result_table": lambda *args, **kwargs: None,

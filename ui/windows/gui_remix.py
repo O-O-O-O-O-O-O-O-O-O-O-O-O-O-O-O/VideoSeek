@@ -6,7 +6,7 @@ import os
 import time
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QFileDialog, QLabel
+from PySide6.QtWidgets import QFileDialog
 
 from src.app.config import load_config
 from src.services.library_service import list_local_vector_details
@@ -14,7 +14,6 @@ from src.services.remix_embedding_cache import get_remix_embed_cache_dir
 from src.utils import open_folder_in_explorer
 from ui.dialogs.remix_scope_editor import RemixScopeEditorDialog
 from ui.playback.remix_compare_dialog import RemixCompareDialog
-from ui.views.table_views import populate_remix_result_table
 from ui.workers import RemixMatchWorker, ThumbLoader
 
 
@@ -102,7 +101,7 @@ class RemixGuiMixin:
         self.remix_page.btn_run.setEnabled(True)
         self.remix_page.btn_stop.setEnabled(False)
         self._stop_remix_thumbnail_loading()
-        self.remix_page.result_table.setRowCount(0)
+        self.remix_page.result_view.clear()
         self.remix_page.lbl_status.setText(self.texts.get("ready", ""))
 
     def stop_remix_match(self):
@@ -164,14 +163,14 @@ class RemixGuiMixin:
             self.remix_page.lbl_status.setText(self.texts["remix_progress"])
 
     def _on_remix_match_results(self, results):
-        self._update_inference_backend_hint()
+        self.push_inference_status()
+        result_view = self.remix_page.result_view
         if not results:
-            self.remix_page.result_table.setRowCount(0)
+            result_view.clear()
             self.remix_page.lbl_status.setText(self.texts["remix_no_results"])
             return
         mix_path = self.remix_page.input_mix_path.text().strip()
-        populate_remix_result_table(
-            self.remix_page.result_table,
+        result_view.populate_remix(
             results,
             mix_path,
             self.handle_remix_compare,
@@ -183,23 +182,17 @@ class RemixGuiMixin:
         self.remix_page.lbl_status.setText(self.texts["remix_done"].format(count=len(results), duration=elapsed))
         thumb_payload = [h.as_search_hit() for h in results]
         self._remix_thumb_thread = ThumbLoader(thumb_payload)
-        self._remix_thumb_thread.thumb_ready.connect(self._on_remix_thumb_ready)
+        self._remix_thumb_thread.thumb_ready.connect(result_view.set_thumbnail)
         self._remix_thumb_thread.start()
 
-    def _on_remix_thumb_ready(self, row, pixmap):
-        label = QLabel()
-        label.setAlignment(Qt.AlignCenter)
-        label.setPixmap(pixmap)
-        self.remix_page.result_table.setCellWidget(row, 1, label)
-
     def _on_remix_match_error(self, error_text):
-        self._update_inference_backend_hint()
+        self.push_inference_status()
         self.remix_page.lbl_status.setText(self.texts["remix_failed"])
         if str(error_text).strip():
             self.show_error_dialog(self.texts["remix_failed"], Exception(str(error_text)))
 
     def _on_remix_match_stopped(self):
-        self._update_inference_backend_hint()
+        self.push_inference_status()
         self.remix_page.lbl_status.setText(self.texts["remix_stopped"])
 
     def _on_remix_match_finished(self):

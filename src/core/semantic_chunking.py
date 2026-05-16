@@ -60,6 +60,94 @@ def build_semantic_chunks(
     return chunks
 
 
+class SemanticChunkStreamBuilder:
+    """Incremental ``build_semantic_chunks`` for long videos (same rules, batch by batch)."""
+
+    def __init__(
+        self,
+        similarity_threshold=0.85,
+        max_chunk_duration=5.0,
+        min_chunk_size=2,
+        similarity_mode=DEFAULT_SIMILARITY_MODE,
+    ):
+        if similarity_mode not in SUPPORTED_SIMILARITY_MODES:
+            raise ValueError(f"Unsupported similarity_mode: {similarity_mode}")
+        self.threshold = float(similarity_threshold)
+        self.max_duration = float(max_chunk_duration)
+        self.min_size = max(1, int(min_chunk_size))
+        self.similarity_mode = similarity_mode
+        self.chunks = []
+        self._current_vectors = []
+        self._current_times = []
+
+    def extend(self, embeddings, timestamps):
+        vectors = np.asarray(embeddings, dtype=np.float32)
+        if vectors.size == 0:
+            return
+        if vectors.ndim == 1:
+            vectors = vectors.reshape(1, -1)
+        if vectors.ndim != 2:
+            raise ValueError("embeddings must be a 2D array")
+        times = np.asarray(timestamps, dtype=np.float32).reshape(-1)
+        if len(vectors) != len(times):
+            raise ValueError("embeddings and timestamps must have the same length")
+        for index in range(len(vectors)):
+            self._append_frame(vectors[index], float(times[index]))
+
+    def finish(self):
+        if self._current_vectors:
+            self.chunks.append(_finalize_chunk(self._current_vectors, self._current_times))
+            self._current_vectors = []
+            self._current_times = []
+        return list(self.chunks)
+
+    def _append_frame(self, vector, timestamp):
+        if not self._current_vectors:
+            self._current_vectors = [vector]
+            self._current_times = [timestamp]
+            return
+
+        similarity = _similarity_to_reference(
+            vector,
+            self._current_vectors,
+            similarity_mode=self.similarity_mode,
+        )
+        duration = timestamp - self._current_times[0]
+        should_split = similarity < self.threshold or duration > self.max_duration
+
+        if should_split and len(self._current_vectors) >= self.min_size:
+            self.chunks.append(_finalize_chunk(self._current_vectors, self._current_times))
+            self._current_vectors = [vector]
+            self._current_times = [timestamp]
+            return
+
+        self._current_vectors.append(vector)
+        self._current_times.append(timestamp)
+
+
+def build_semantic_chunks_streaming(vector_batches, timestamps, **kwargs):
+    """Build chunks from per-batch frame vectors without materializing a full matrix first."""
+    builder = SemanticChunkStreamBuilder(**kwargs)
+    if not vector_batches:
+        return builder.finish()
+    times = np.asarray(timestamps, dtype=np.float32).reshape(-1)
+    offset = 0
+    for batch in vector_batches:
+        batch_vectors = np.asarray(batch, dtype=np.float32)
+        if batch_vectors.size == 0:
+            continue
+        if batch_vectors.ndim == 1:
+            batch_vectors = batch_vectors.reshape(1, -1)
+        end = offset + batch_vectors.shape[0]
+        if end > len(times):
+            raise ValueError("streaming chunk timestamps shorter than vector batches")
+        builder.extend(batch_vectors, times[offset:end])
+        offset = end
+    if offset != len(times):
+        raise ValueError("streaming chunk timestamps longer than vector batches")
+    return builder.finish()
+
+
 def chunk_config_payload(
     similarity_threshold=0.85,
     max_chunk_duration=5.0,

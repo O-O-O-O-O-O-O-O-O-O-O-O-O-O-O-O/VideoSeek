@@ -3,7 +3,6 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -11,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.i18n import get_texts
+from ui.widgets.scaffold import VSCard
 
 
 class MobileBridgeDialog(QDialog):
@@ -25,11 +25,8 @@ class MobileBridgeDialog(QDialog):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(18, 18, 18, 18)
 
-        card = QFrame()
-        card.setObjectName("Card")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(22, 22, 22, 18)
-        layout.setSpacing(14)
+        card = VSCard(variant="dialog", margins=(22, 22, 22, 18), spacing=14)
+        layout = card.content_layout
 
         title = QLabel(texts.get("mobile_bridge_qr_title", "局域网访问"))
         title.setObjectName("DialogPageTitle")

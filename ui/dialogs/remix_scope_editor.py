@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from ui.widgets.scaffold import VSCard
 from ui.widgets.styles import repolish_widget
 
 
@@ -33,15 +34,18 @@ class RemixScopeEditorDialog(QDialog):
 
         self.setObjectName("RemixScopeEditorDialog")
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(12)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        shell = VSCard(margins=(18, 16, 18, 16), spacing=12)
+        inner = shell.content_layout
 
         hero = QLabel(str(texts.get("remix_scope_dialog_title", texts.get("remix_scope_title", ""))))
         hero.setObjectName("DialogHeroTitle")
-        root.addWidget(hero)
+        inner.addWidget(hero)
 
         self._body.setParent(self)
-        root.addWidget(self._body, 1)
+        inner.addWidget(self._body, 1)
 
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
@@ -53,7 +57,8 @@ class RemixScopeEditorDialog(QDialog):
         ok.clicked.connect(self.accept)
         btn_row.addWidget(cancel, 0)
         btn_row.addWidget(ok, 0)
-        root.addLayout(btn_row)
+        inner.addLayout(btn_row)
+        root.addWidget(shell, 1)
 
         self._apply_palette()
 

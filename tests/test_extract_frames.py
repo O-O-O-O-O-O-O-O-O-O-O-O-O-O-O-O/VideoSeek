@@ -1,10 +1,15 @@
 import io
+import os
 import unittest
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 
-from src.core.extract_frames import extract_frames_with_ffmpeg, stream_frames_with_ffmpeg
+from src.core.extract_frames import (
+    FrameExtractionError,
+    extract_frames_with_ffmpeg,
+    stream_frames_with_ffmpeg,
+)
 from src.utils import get_video_duration_seconds, get_video_stream_info, has_readable_video_stream
 
 
@@ -36,7 +41,7 @@ class ExtractFramesTests(unittest.TestCase):
         self.assertEqual(frames[0].shape, (224, 224, 3))
         self.assertEqual(timestamps, [0.0])
         command = mock_popen.call_args.args[0]
-        self.assertIn("fps=2.000000,scale=224:224", command)
+        self.assertIn("fps=2.000000,scale=224:224:flags=fast_bilinear", command)
 
     @patch("src.core.extract_frames.subprocess.Popen")
     @patch("src.core.extract_frames.get_ffmpeg_path", return_value="ffmpeg")
@@ -65,6 +70,93 @@ class ExtractFramesTests(unittest.TestCase):
         self.assertEqual(items[0][0].shape, (224, 224, 3))
         self.assertEqual(items[0][1], 0.0)
         self.assertEqual(items[1][1], 0.5)
+
+    @patch.dict(os.environ, {"VIDEOSEEK_FFMPEG_THREADS": "4"}, clear=False)
+    @patch("src.core.extract_frames.subprocess.Popen")
+    @patch("src.core.extract_frames.get_ffmpeg_path", return_value="ffmpeg")
+    @patch("src.core.extract_frames.resolve_sampling_fps", return_value=2.0)
+    @patch("src.core.extract_frames.get_video_duration_seconds", return_value=10.0)
+    @patch("src.core.extract_frames.load_config", return_value={"fps": 1})
+    def test_extract_ffmpeg_threads_env_caps_decode_threads(
+        self,
+        _mock_load_config,
+        _mock_duration,
+        _mock_resolve_fps,
+        _mock_ffmpeg,
+        mock_popen,
+    ):
+        frame_bytes = np.zeros((224, 224, 3), dtype=np.uint8).tobytes()
+        process = MagicMock()
+        process.stdout = io.BytesIO(frame_bytes)
+        process.wait.return_value = 0
+        process.poll.return_value = 0
+        mock_popen.return_value = process
+
+        extract_frames_with_ffmpeg("D:/video.mp4")
+
+        command = mock_popen.call_args.args[0]
+        idx = command.index("-threads")
+        self.assertEqual(command[idx + 1], "4")
+
+    @patch("src.core.extract_frames.subprocess.Popen")
+    @patch("src.core.extract_frames.get_ffmpeg_path", return_value="ffmpeg")
+    @patch("src.core.extract_frames.resolve_sampling_fps", return_value=2.0)
+    @patch("src.core.extract_frames.get_video_duration_seconds", return_value=10.0)
+    @patch("src.core.extract_frames.load_config", return_value={"fps": 1})
+    def test_stream_frames_raises_when_ffmpeg_exits_nonzero(
+        self,
+        _mock_load_config,
+        _mock_duration,
+        _mock_resolve_fps,
+        _mock_ffmpeg,
+        mock_popen,
+    ):
+        frame_bytes = np.zeros((224, 224, 3), dtype=np.uint8).tobytes()
+        process = MagicMock()
+        process.stdout = io.BytesIO(frame_bytes)
+        process.wait.return_value = 1
+        process.poll.return_value = 1
+        mock_popen.return_value = process
+
+        with self.assertRaises(FrameExtractionError) as ctx:
+            list(stream_frames_with_ffmpeg("D:/video.mp4"))
+
+        self.assertEqual(ctx.exception.frame_count, 1)
+
+    @patch("src.core.extract_frames.subprocess.Popen")
+    @patch("src.core.extract_frames.get_ffmpeg_path", return_value="ffmpeg")
+    @patch("src.core.extract_frames.resolve_sampling_fps", return_value=2.0)
+    @patch("src.core.extract_frames.get_video_duration_seconds", return_value=10.0)
+    @patch("src.core.extract_frames.load_config", return_value={"fps": 1})
+    def test_stream_frames_raises_on_stop_request(
+        self,
+        _mock_load_config,
+        _mock_duration,
+        _mock_resolve_fps,
+        _mock_ffmpeg,
+        mock_popen,
+    ):
+        frame_bytes = np.zeros((224, 224, 3), dtype=np.uint8).tobytes()
+        process = MagicMock()
+        process.stdout = io.BytesIO(frame_bytes * 50)
+        process.wait.return_value = 0
+        process.poll.return_value = 0
+        mock_popen.return_value = process
+
+        stop_after = {"count": 0}
+
+        def should_stop():
+            stop_after["count"] += 1
+            return stop_after["count"] > 1
+
+        with self.assertRaises(InterruptedError):
+            list(
+                stream_frames_with_ffmpeg(
+                    "D:/video.mp4",
+                    should_stop=should_stop,
+                    process_holder={},
+                )
+            )
 
 
 class VideoProbeTests(unittest.TestCase):

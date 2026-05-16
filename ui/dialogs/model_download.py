@@ -1,9 +1,10 @@
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QAbstractItemView, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QProgressBar, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QAbstractItemView, QDialog, QFileDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QProgressBar, QPushButton, QVBoxLayout
 
 from src.app.i18n import get_texts
 from ui.widgets.layout import WINDOW_SIZES, apply_dialog_size
+from ui.widgets.scaffold import VSCard
 from ui.widgets.styles import THEME_COLORS_DARK, THEME_COLORS_LIGHT
 
 
@@ -34,11 +35,8 @@ class ModelDownloadDialog(QDialog):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(18, 18, 18, 18)
 
-        card = QFrame()
-        card.setObjectName("Card")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(24, 24, 24, 20)
-        layout.setSpacing(12)
+        card = VSCard(variant="dialog", margins=(24, 24, 24, 20), spacing=12)
+        layout = card.content_layout
 
         self.title_label = QLabel(self.texts["models_missing_title"])
         self.title_label.setObjectName("DialogHeadline")

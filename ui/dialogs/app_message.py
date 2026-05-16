@@ -1,7 +1,6 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -10,6 +9,7 @@ from PySide6.QtWidgets import (
 
 from src.app.i18n import get_texts
 from ui.widgets.layout import WINDOW_SIZES, message_dialog_min_width
+from ui.widgets.scaffold import VSCard
 from ui.widgets.styles import repolish_widget
 
 
@@ -41,11 +41,8 @@ class AppMessageDialog(QDialog):
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(18, 18, 18, 18)
-        card = QFrame()
-        card.setObjectName("Card")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(22, 22, 22, 18)
-        layout.setSpacing(14)
+        card = VSCard(variant="dialog", margins=(22, 22, 22, 18), spacing=14)
+        layout = card.content_layout
 
         top = QHBoxLayout()
         top.setSpacing(12)

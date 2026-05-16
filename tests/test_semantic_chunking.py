@@ -52,7 +52,11 @@ def _schema_v2_config(**extra):
 
 
 if np is not None:
-    from src.core.semantic_chunking import build_semantic_chunks, unpack_chunks
+    from src.core.semantic_chunking import (
+        build_semantic_chunks,
+        build_semantic_chunks_streaming,
+        unpack_chunks,
+    )
     from src.services import indexing_service
     from src.services import search_service
 else:  # pragma: no cover
@@ -111,6 +115,37 @@ class SemanticChunkingTests(unittest.TestCase):
 
         self.assertEqual(len(chunks), 1)
         self.assertEqual((chunks[0]["start"], chunks[0]["end"]), (0.0, 2.0))
+
+    def test_streaming_chunks_match_single_pass(self):
+        embeddings = np.asarray(
+            [
+                [1.0, 0.0],
+                [0.98, 0.02],
+                [0.0, 1.0],
+                [0.02, 0.98],
+                [0.01, 0.99],
+            ],
+            dtype=np.float32,
+        )
+        timestamps = [0.0, 1.0, 2.0, 3.0, 4.0]
+        kwargs = {
+            "similarity_threshold": 0.85,
+            "max_chunk_duration": 10.0,
+            "min_chunk_size": 2,
+            "similarity_mode": "chunk",
+        }
+
+        single = build_semantic_chunks(embeddings, timestamps, **kwargs)
+        streaming = build_semantic_chunks_streaming(
+            [embeddings[:2], embeddings[2:4], embeddings[4:]],
+            timestamps,
+            **kwargs,
+        )
+
+        self.assertEqual(len(single), len(streaming))
+        for left, right in zip(single, streaming):
+            self.assertEqual((left["start"], left["end"]), (right["start"], right["end"]))
+            np.testing.assert_allclose(left["embedding"], right["embedding"], rtol=1e-5, atol=1e-5)
 
     def test_build_semantic_chunks_respects_max_duration(self):
         embeddings = np.asarray(

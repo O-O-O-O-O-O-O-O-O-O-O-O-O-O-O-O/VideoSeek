@@ -15,6 +15,18 @@ from src.app.logging_utils import get_logger
 
 logger = get_logger("utils")
 
+
+def format_timecode_seconds(seconds) -> str:
+    """MM:SS, or H:MM:SS when one hour or more (integer seconds, floor)."""
+    total = max(0, int(float(seconds)))
+    h = total // 3600
+    m = (total % 3600) // 60
+    s = total % 60
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+
 #
 def measure_time(message=""):
     def decorator(func):
@@ -305,17 +317,42 @@ def canonicalize_library_path(path):
     return os.path.normcase(os.path.normpath(os.path.abspath(path)))
 
 
-def get_video_hash(video_path):
+def get_legacy_video_hash(video_path):
+    """Pre-v2 video id: SHA256 of the first 10 MiB only (size/mtime not included)."""
     digest = hashlib.sha256()
     with open(video_path, "rb") as handle:
         digest.update(handle.read(10 * 1024 * 1024))
     return digest.hexdigest()
 
 
+def get_video_hash(video_path):
+    digest = hashlib.sha256()
+    stat = os.stat(video_path)
+    digest.update(str(int(stat.st_size)).encode("utf-8"))
+    mtime_ns = getattr(stat, "st_mtime_ns", int(float(stat.st_mtime) * 1_000_000_000))
+    digest.update(str(int(mtime_ns)).encode("utf-8"))
+    with open(video_path, "rb") as handle:
+        digest.update(handle.read(10 * 1024 * 1024))
+    return digest.hexdigest()
+
+
 def save_meta(meta, meta_file):
+    import tempfile
+
     ensure_folder_exists(meta_file)
-    with open(meta_file, "w", encoding="utf-8") as handle:
-        json.dump(meta, handle, indent=4, ensure_ascii=False)
+    folder = os.path.dirname(meta_file) or "."
+    fd, temp_path = tempfile.mkstemp(prefix=".tmp_", suffix=".json", dir=folder)
+    os.close(fd)
+    try:
+        with open(temp_path, "w", encoding="utf-8") as handle:
+            json.dump(meta, handle, indent=4, ensure_ascii=False)
+        os.replace(temp_path, meta_file)
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 
 def create_preview_clip(input_path, start_sec, output_path, duration_sec=None):

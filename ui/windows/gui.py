@@ -4,14 +4,25 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
-from PySide6.QtWidgets import QApplication, QFileDialog, QFrame, QMainWindow, QScrollArea, QStackedWidget, \
-    QVBoxLayout, QWidget, QHBoxLayout
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QMainWindow,
+    QScrollArea,
+    QSizePolicy,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.app.config import (
     DEFAULT_CONFIG,
     get_app_version,
     load_config,
     pop_migration_notice,
+    pop_startup_migration_summary,
     save_config,
 )
 from src.app.i18n import get_texts
@@ -29,7 +40,8 @@ from src.utils import (
 )
 from src.services.version_service import get_local_version_status
 from ui.controllers.app_meta_controller import AppMetaController
-from ui.widgets.components import LibraryPage, LinkSearchPage, NavigationSidebar, RemixMatchPage, SearchPage, SettingsPage
+from ui.widgets.components import LibraryPage, LinkSearchPage, NavigationSidebar, RemixMatchPage, SearchPage
+from ui.widgets.settings import SettingsPage
 from ui.dialogs import AboutDialog, AppMessageDialog, MobileBridgeDialog, NoticeDialog
 from ui.controllers.indexing_controller import IndexingController
 from ui.widgets.layout import WINDOW_SIZES, apply_window_size
@@ -46,9 +58,22 @@ from ui.windows.gui_library_indexing import LibraryIndexingGuiMixin
 from ui.windows.gui_vector_network import VectorNetworkGuiMixin
 from ui.windows.gui_runtime import RuntimeGuiMixin
 from ui.windows.gui_model_packages import ModelPackagesGuiMixin
+from ui.windows.gui_ui_state import AppUiStateMixin
+from ui.windows.gui_tray import TrayGuiMixin
 
 
-class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, LibraryIndexingGuiMixin, VectorNetworkGuiMixin, RuntimeGuiMixin, ModelPackagesGuiMixin):
+class MainWindow(
+    QMainWindow,
+    TrayGuiMixin,
+    RemixGuiMixin,
+    SettingsGuiMixin,
+    PreviewGuiMixin,
+    LibraryIndexingGuiMixin,
+    VectorNetworkGuiMixin,
+    RuntimeGuiMixin,
+    AppUiStateMixin,
+    ModelPackagesGuiMixin,
+):
     """Sidebar / stacked widget order: local search → library → remix → remote link → settings."""
 
     _NAV_PAGE_ORDER = ("search", "library", "remix", "link", "settings")
@@ -62,8 +87,8 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         self.version_info = None
         self.notice_payload = None
         self.about_payload = None
-        self.models_ready = True
         self._startup_complete = False
+        self._defer_runtime_warmup = False
         self._preview_dialog_cooldown_until = 0.0
         self._preview_dialog_opening = False
         self._preview_export_queue = deque()
@@ -100,7 +125,7 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         self.app_meta_controller.about_ready.connect(self._update_about_payload)
         self.indexing_controller = IndexingController(self)
         self.indexing_controller.status_changed.connect(self._update_indexing_progress)
-        self.indexing_controller.runtime_status_changed.connect(self._apply_runtime_status)
+        self.indexing_controller.runtime_status_changed.connect(self.push_inference_status)
         self.indexing_controller.error_occurred.connect(self._handle_indexing_error)
         self.indexing_controller.finished.connect(self._finish_indexing)
         self.preview_controller = PreviewController(self)
@@ -112,13 +137,15 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         self.runtime_resource_controller = RuntimeResourceController(self)
         self.runtime_resource_controller.startup_cancelled.connect(self._handle_runtime_resource_exit)
         self.runtime_resource_controller.resources_ready.connect(self._finish_runtime_resource_download)
-        self.runtime_resource_controller.status_changed.connect(self._apply_runtime_resource_status)
+        self.runtime_resource_controller.status_changed.connect(self.push_resources_status)
+        self._init_ui_state()
         self.media_player = QMediaPlayer()
         self.audio_output = QAudioOutput()
         self.audio_output.setVolume(1.0)
         self.media_player.setAudioOutput(self.audio_output)
         self.media_player.setVideoOutput(self.video_widget)
         self._update_expand_preview_button()
+        self._init_system_tray()
         self.apply_texts()
         self._bind_settings_dirty_tracking()
         self.load_settings_values()
@@ -126,6 +153,8 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         self._show_startup_migration_notice()
         self.check_runtime_resources(show_dialog=False)
         if self.startup_cancelled:
+            self.search_controller.shutdown()
+            self.preview_controller.shutdown()
             return
         self.apply_theme()
         QTimer.singleShot(0, self._finish_startup_sequence)
@@ -171,6 +200,7 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
 
         self.search_page.preview_placeholder.hide()
         self.video_widget = QVideoWidget()
+        self.video_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.video_widget.setAttribute(Qt.WA_NativeWindow, True)
         # QVideoWidget is nested under QScrollArea / #PanelCard; without this, Qt may
         # promote ancestors to QWidgetWindow and log: "must be a top level window."
@@ -181,7 +211,7 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
             self.video_widget.setAttribute(dont_native_ancestors, True)
         self.video_widget.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.search_page.preview_host.mouseDoubleClickEvent = self.open_current_preview_dialog
-        self.search_page.preview_host_layout.addWidget(self.video_widget)
+        self.search_page.preview_host_layout.addWidget(self.video_widget, 1)
 
         self.result_table = self.search_page.result_table
 
@@ -220,6 +250,7 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         self.remix_page.btn_scope_none.clicked.connect(self._remix_scope_select_none)
         self.remix_page.btn_open_remix_cache.clicked.connect(self.open_remix_embed_cache_folder)
         self.remix_page.btn_edit_scope.clicked.connect(self.open_remix_scope_editor)
+        self.remix_page.btn_export_tasks.clicked.connect(self.show_preview_export_tasks)
 
         self.library_page.btn_add_lib.clicked.connect(self.select_video_folder)
         self.library_page.btn_sync_db.clicked.connect(self.start_update_index)
@@ -309,7 +340,7 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
             self.sidebar.btn_about.setObjectName("UpdateButton")
         else:
             self.sidebar.btn_about.setText(t["about_short"])
-            self.sidebar.btn_about.setObjectName("SecondaryButton")
+            self.sidebar.btn_about.setObjectName("SidebarFooterButton")
         self.sidebar.btn_about.style().unpolish(self.sidebar.btn_about)
         self.sidebar.btn_about.style().polish(self.sidebar.btn_about)
         self.sidebar.btn_about.update()
@@ -337,6 +368,7 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         self.search_page.btn_expand_preview.setText(t.get("preview_expand", "放大预览"))
         self.search_page.results_title.setText(t["results_panel"])
         self.search_page.btn_export_tasks.setText(t.get("preview_export_tasks", "Export Tasks"))
+        self.remix_page.btn_export_tasks.setText(t.get("preview_export_tasks", "Export Tasks"))
         self._update_expand_preview_button()
         self.search_page.text_search.setPlaceholderText(t["search_placeholder"])
         self.search_page.mobile_toggle_label.setText(t.get("mobile_bridge_toggle_label", t["mobile_bridge_start"]))
@@ -350,7 +382,8 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         self.search_page.btn_search.setText(t["search"])
         self.search_page.btn_clear.setText(t["clear"])
         self.search_page.preview_placeholder.setText(t["preview_placeholder"])
-        self.result_table.setHorizontalHeaderLabels(t["result_headers"])
+        self.result_table.apply_header_labels(t)
+        self.search_page.result_view.set_empty_message(t["no_results"])
 
         self.link_page.header.title.setText(t["link_page_title"])
         self.link_page.header.subtitle.setText(t["link_page_desc"])
@@ -378,7 +411,8 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         self.link_page.btn_run.setText(t["link_run"])
         self.link_page.btn_clear.setText(t["clear"])
         self.link_page.results_title.setText(t["link_results_panel"])
-        self.link_page.result_table.setHorizontalHeaderLabels(t["network_result_headers"])
+        self.link_page.result_table.apply_header_labels(t)
+        self.link_page.result_view.set_empty_message(t["no_results"])
 
         self.remix_page.header.title.setText(t["remix_page_title"])
         self.remix_page.header.subtitle.setText(t["remix_page_desc"])
@@ -393,9 +427,8 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         self.remix_page.btn_stop.setText(t["remix_stop"])
         self.remix_page.btn_clear.setText(t["remix_clear"])
         self.remix_page.results_title.setText(t["remix_results_title"])
-        rh = t["remix_result_headers"]
-        self.remix_page.result_table.setColumnCount(len(rh))
-        self.remix_page.result_table.setHorizontalHeaderLabels(rh)
+        self.remix_page.result_table.apply_header_labels(t)
+        self.remix_page.result_view.set_empty_message(t.get("remix_no_results", t["no_results"]))
 
         self.library_page.header.title.setText(t["library_page_title"])
         self.library_page.header.subtitle.setText(t["library_page_desc"])
@@ -418,7 +451,9 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         self.settings_page.btn_save.setText(t["save_settings"])
         self.settings_page.btn_reset.setText(t["reset_settings"])
         self.settings_page.configure_form_labels(t)
-        self._update_inference_backend_hint()
+        if hasattr(self, "_rebuild_tray_menu"):
+            self._rebuild_tray_menu()
+        self.push_inference_status()
         self._refresh_pending_cleanup_actions(config)
 
         if not self.current_img_path and not self.search_page.img_label.pixmap():
@@ -443,6 +478,9 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         if synced_path:
             self.settings_page.input_ffmpeg_path.setText(synced_path)
         self._startup_complete = True
+        if getattr(self, "_defer_runtime_warmup", False):
+            self._defer_runtime_warmup = False
+            self._start_runtime_warmup()
         self.refresh_library_table()
         self._prompt_resume_partial_indexing()
         self.app_meta_controller.refresh(self.language)
@@ -651,17 +689,86 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
         return dialog.confirmed()
 
     def _show_startup_migration_notice(self):
-        notice = pop_migration_notice()
-        if not notice:
+        parts = []
+        config_notice = pop_migration_notice()
+        if config_notice:
+            parts.append(
+                self.texts["migration_notice_body"].format(
+                    config_file=config_notice["config_file"],
+                    data_dir=config_notice["data_dir"],
+                )
+            )
+
+        summary = pop_startup_migration_summary()
+        summary_text = self._build_startup_migration_summary_text(summary)
+        if summary_text:
+            parts.append(summary_text)
+
+        if not parts:
             return
-        self.show_info_dialog(
-            self.texts["migration_notice_title"],
-            self.texts["migration_notice_body"].format(
-                config_file=notice["config_file"],
-                data_dir=notice["data_dir"],
-            ),
-            kind="info",
-        )
+
+        if config_notice and summary_text:
+            title = self.texts["migration_combined_title"]
+        elif summary_text:
+            title = self.texts["migration_summary_title"]
+        else:
+            title = self.texts["migration_notice_title"]
+        self.show_info_dialog(title, "\n\n".join(parts), kind="info")
+
+    def _build_startup_migration_summary_text(self, summary):
+        if not isinstance(summary, dict):
+            return ""
+
+        lines = []
+        schema_lines = []
+        local_files = int(summary.get("migrated_local_asset_files", 0) or 0)
+        local_payloads = int(summary.get("migrated_local_payloads", 0) or 0)
+        global_payloads = int(summary.get("migrated_global_payloads", 0) or 0)
+        remote_payloads = int(summary.get("migrated_remote_payloads", 0) or 0)
+        if local_files > 0:
+            schema_lines.append(
+                self.texts["migration_summary_schema_local_files"].format(count=local_files)
+            )
+        if local_payloads > 0:
+            schema_lines.append(
+                self.texts["migration_summary_schema_local_payloads"].format(count=local_payloads)
+            )
+        if global_payloads > 0:
+            schema_lines.append(
+                self.texts["migration_summary_schema_global"].format(count=global_payloads)
+            )
+        if remote_payloads > 0:
+            schema_lines.append(
+                self.texts["migration_summary_schema_remote"].format(count=remote_payloads)
+            )
+        if schema_lines:
+            lines.append(self.texts["migration_summary_schema_section"])
+            lines.extend(schema_lines)
+
+        video_lines = []
+        migrated_video_ids = int(summary.get("migrated_video_ids", 0) or 0)
+        failed_video_ids = int(summary.get("failed_video_ids", 0) or 0)
+        if migrated_video_ids > 0:
+            video_lines.append(
+                self.texts["migration_summary_video_id_migrated"].format(count=migrated_video_ids)
+            )
+        if failed_video_ids > 0:
+            video_lines.append(
+                self.texts["migration_summary_video_id_failed"].format(count=failed_video_ids)
+            )
+        if summary.get("pending_legacy"):
+            video_lines.append(self.texts["migration_summary_video_id_pending"])
+        if video_lines:
+            lines.append(self.texts["migration_summary_video_id_section"])
+            lines.extend(video_lines)
+
+        backup_dir = str(summary.get("backup_dir", "") or "").strip()
+        if backup_dir:
+            lines.append(self.texts["migration_summary_backup"].format(path=backup_dir))
+
+        if not lines:
+            return ""
+        return self.texts["migration_summary_intro"] + "\n\n" + "\n".join(lines)
 
     def _prompt_resume_partial_indexing(self):
         partial_libraries = list_partial_libraries(include_offline=False)
@@ -710,27 +817,12 @@ class MainWindow(QMainWindow, RemixGuiMixin, SettingsGuiMixin, PreviewGuiMixin, 
                 )
                 event.ignore()
                 return
-        if self.indexing_controller.is_running():
-            self._close_when_indexing_stops = True
-            self.indexing_controller.request_stop()
-            self.library_page.lbl_status.setText(self.texts["index_stop_requested"])
-            event.ignore()
+        if self.indexing_controller.is_running() and not self._force_application_quit:
+            if self._handle_indexing_window_close(event):
+                return
+        if self._try_minimize_to_tray_on_close(event):
             return
-        if hasattr(self, "_preview_dialog") and self._preview_dialog is not None:
-            self._preview_dialog.shutdown_player(fast=True)
-        self.search_controller.shutdown()
-        self.network_search_controller.shutdown()
-        from ui.threading_utils import shutdown_thread
-
-        shutdown_thread(getattr(self, "remix_worker", None))
-        self.remix_worker = None
-        self._stop_remix_thumbnail_loading()
-        self.mobile_bridge_controller.shutdown()
-        self.indexing_controller.shutdown()
-        self.app_meta_controller.shutdown()
-        self.runtime_resource_controller.shutdown()
-        self.preview_controller.shutdown()
-        event.accept()
+        self._shutdown_application(event)
 
     def _set_image_query(self, path, clear_text):
         self.current_img_path = path

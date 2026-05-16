@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.i18n import get_texts
+from ui.widgets.scaffold import VSCard
 
 
 class LegacyResourceTableDialog(QDialog):
@@ -80,11 +81,8 @@ class LegacyResourceTableDialog(QDialog):
         subtitle_label.setObjectName("Hint")
         subtitle_label.setWordWrap(True)
 
-        toolbar_card = QFrame()
-        toolbar_card.setObjectName("ToolbarCard")
-        toolbar_layout = QVBoxLayout(toolbar_card)
-        toolbar_layout.setContentsMargins(14, 12, 14, 12)
-        toolbar_layout.setSpacing(10)
+        toolbar_card = VSCard(object_name="ToolbarCard", margins=(14, 12, 14, 12), spacing=10)
+        toolbar_layout = toolbar_card.content_layout
 
         filter_row = QHBoxLayout()
         filter_row.setSpacing(8)
@@ -126,14 +124,11 @@ class LegacyResourceTableDialog(QDialog):
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.table.setAlternatingRowColors(True)
+        self.table.setAlternatingRowColors(False)
         self.table.setShowGrid(False)
 
-        preview_card = QFrame()
-        preview_card.setObjectName("PreviewCard")
-        preview_layout = QVBoxLayout(preview_card)
-        preview_layout.setContentsMargins(14, 12, 14, 12)
-        preview_layout.setSpacing(8)
+        preview_card = VSCard(object_name="PreviewCard", margins=(14, 12, 14, 12), spacing=8)
+        preview_layout = preview_card.content_layout
         preview_title = QLabel(self._preview_title_text())
         preview_title.setObjectName("DialogInlineTitle")
         preview_hint = QLabel(self._preview_hint_text())
@@ -225,11 +220,8 @@ class LegacyResourceTableDialog(QDialog):
         return en_text if self.texts["close"].lower() == "close" else zh_text
 
     def _build_summary_card(self, label_text, value_text):
-        card = QFrame()
-        card.setObjectName("SummaryCard")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(2)
+        card = VSCard(object_name="SummaryCard", margins=(12, 10, 12, 10), spacing=2)
+        layout = card.content_layout
         value = QLabel(value_text)
         value.setObjectName("SummaryValue")
         label = QLabel(label_text)

@@ -14,6 +14,7 @@ from src.utils import (
 
 logger = get_logger("config")
 _LAST_MIGRATION_NOTICE = None
+_LAST_STARTUP_MIGRATION_SUMMARY = None
 STORAGE_DIR_NAME = "data"
 
 APP_DATA_DIR = get_app_data_dir()
@@ -54,6 +55,7 @@ DEFAULT_CONFIG = {
     "prefer_gpu": True,
     "gpu_probe_unknown_keep_gpu": False,
     "embedding_batch_size": 16,
+    "close_window_action": "exit",
     "similarity_threshold": 0.85,
     "max_chunk_duration": 5.0,
     "min_chunk_size": 2,
@@ -107,6 +109,7 @@ CONFIG_ENUMS = {
     "search_mode": {"frame", "chunk"},
     "theme": {"dark", "light"},
     "language": {"zh", "en"},
+    "close_window_action": {"exit", "tray"},
 }
 
 PATH_KEYS = {
@@ -319,6 +322,9 @@ def _sanitize_general_settings(config):
         value = str(sanitized.get(key, DEFAULT_CONFIG[key]) or "").strip().lower()
         sanitized[key] = value if value in allowed_values else DEFAULT_CONFIG[key]
 
+    # Removed setting: strip from older config.json on load/save.
+    sanitized.pop("ffmpeg_hwaccel", None)
+
     sanitized["prefer_gpu"] = _coerce_bool(
         sanitized.get("prefer_gpu", DEFAULT_CONFIG["prefer_gpu"]),
         DEFAULT_CONFIG["prefer_gpu"],
@@ -481,3 +487,38 @@ def pop_migration_notice():
     notice = _LAST_MIGRATION_NOTICE
     _LAST_MIGRATION_NOTICE = None
     return notice
+
+
+def should_report_startup_migration_summary(result):
+    if not isinstance(result, dict):
+        return False
+    if int(result.get("migrated_video_ids", 0) or 0) > 0:
+        return True
+    if int(result.get("failed_video_ids", 0) or 0) > 0:
+        return True
+    if bool(result.get("pending_legacy")):
+        return True
+    if not bool(result.get("migrated")):
+        return False
+    schema_keys = (
+        "migrated_local_asset_files",
+        "migrated_local_payloads",
+        "migrated_global_payloads",
+        "migrated_remote_payloads",
+    )
+    return any(int(result.get(key, 0) or 0) > 0 for key in schema_keys) or bool(str(result.get("backup_dir", "") or "").strip())
+
+
+def set_startup_migration_summary(result):
+    global _LAST_STARTUP_MIGRATION_SUMMARY
+    if not should_report_startup_migration_summary(result):
+        _LAST_STARTUP_MIGRATION_SUMMARY = None
+        return
+    _LAST_STARTUP_MIGRATION_SUMMARY = dict(result)
+
+
+def pop_startup_migration_summary():
+    global _LAST_STARTUP_MIGRATION_SUMMARY
+    summary = _LAST_STARTUP_MIGRATION_SUMMARY
+    _LAST_STARTUP_MIGRATION_SUMMARY = None
+    return summary

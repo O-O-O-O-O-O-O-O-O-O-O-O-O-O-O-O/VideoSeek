@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 
 from src.app.i18n import get_texts
 from ui.widgets.layout import WINDOW_SIZES, apply_dialog_size
+from ui.widgets.scaffold import VSCard
 
 
 class LinkEditorDialog(QDialog):
@@ -27,8 +28,11 @@ class LinkEditorDialog(QDialog):
         )
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
-        root.setSpacing(10)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(0)
+
+        shell = VSCard(margins=(16, 16, 16, 16), spacing=10)
+        inner = shell.content_layout
 
         title = QLabel(self.texts["network_link_editor_title"])
         title.setObjectName("DialogSectionTitle")
@@ -59,11 +63,12 @@ class LinkEditorDialog(QDialog):
         actions.addWidget(self.btn_cancel)
         actions.addWidget(self.btn_ok)
 
-        root.addWidget(title)
-        root.addWidget(hint)
-        root.addWidget(self.editor, 1)
-        root.addLayout(toolbar)
-        root.addLayout(actions)
+        inner.addWidget(title)
+        inner.addWidget(hint)
+        inner.addWidget(self.editor, 1)
+        inner.addLayout(toolbar)
+        inner.addLayout(actions)
+        root.addWidget(shell, 1)
 
         self.btn_import.clicked.connect(self._import_file)
         self.btn_clear.clicked.connect(self.editor.clear)

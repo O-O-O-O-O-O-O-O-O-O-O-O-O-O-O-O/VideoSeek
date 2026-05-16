@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.i18n import get_texts
+from ui.widgets.scaffold import VSCard
 
 from .common import SortableTableWidgetItem
 
@@ -79,11 +80,8 @@ class ResourceTableDialog(QDialog):
         subtitle_label.setObjectName("Hint")
         subtitle_label.setWordWrap(True)
 
-        toolbar_card = QFrame()
-        toolbar_card.setObjectName("ToolbarCard")
-        toolbar_layout = QVBoxLayout(toolbar_card)
-        toolbar_layout.setContentsMargins(14, 12, 14, 12)
-        toolbar_layout.setSpacing(10)
+        toolbar_card = VSCard(object_name="ToolbarCard", margins=(14, 12, 14, 12), spacing=10)
+        toolbar_layout = toolbar_card.content_layout
 
         filter_row = QHBoxLayout()
         filter_row.setSpacing(8)
@@ -124,18 +122,15 @@ class ResourceTableDialog(QDialog):
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.table.verticalHeader().setVisible(False)
         self.table.setFocusPolicy(Qt.NoFocus)
-        self.table.setAlternatingRowColors(True)
+        self.table.setAlternatingRowColors(False)
         self.table.setShowGrid(False)
         self.table.setSortingEnabled(self.allow_sorting)
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.setMinimumHeight(360)
 
-        details_card = QFrame()
-        details_card.setObjectName("DetailsCard")
-        details_layout = QVBoxLayout(details_card)
-        details_layout.setContentsMargins(14, 12, 14, 12)
-        details_layout.setSpacing(6)
+        details_card = VSCard(object_name="DetailsCard", margins=(14, 12, 14, 12), spacing=6)
+        details_layout = details_card.content_layout
         details_title = QLabel(self._inline_text("选中项详情", "Selected Details"))
         details_title.setObjectName("DialogInlineTitle")
         details_hint = QLabel(self._inline_text("只显示当前选中行的关键信息。", "Shows the key fields for the selected row."))
@@ -221,11 +216,8 @@ class ResourceTableDialog(QDialog):
         self.summary_hint.setVisible(bool(self.summary_text))
 
     def _build_summary_card(self, label_text, value_text):
-        card = QFrame()
-        card.setObjectName("SummaryCard")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(2)
+        card = VSCard(object_name="SummaryCard", margins=(12, 10, 12, 10), spacing=2)
+        layout = card.content_layout
         value = QLabel(value_text)
         value.setObjectName("SummaryValue")
         label = QLabel(label_text)

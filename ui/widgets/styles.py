@@ -120,12 +120,23 @@ QMenu::separator {
     background: __NOTICE_BG__;
     border: 1px solid __NOTICE_LINE__;
 }
+/* Runtime / indexing strip: info tone uses accent-soft so it reads as a highlight strip; ``bannerTone=warn`` when resources missing */
 #RuntimeBanner {
+    background: __ACCENT_SOFT__;
+    border: 1px solid __ACCENT__;
+    border-radius: 18px;
+}
+#RuntimeBanner #RuntimeBannerText {
+    color: __TEXT__;
+    font-size: 12px;
+    font-weight: 600;
+}
+#RuntimeBanner[bannerTone="warn"] {
     background: __WARN_SOFT__;
     border: 1px solid __WARN__;
-    border-radius: 12px;
+    border-radius: 18px;
 }
-#RuntimeBannerText {
+#RuntimeBanner[bannerTone="warn"] #RuntimeBannerText {
     color: __WARN__;
     font-size: 12px;
     font-weight: 700;
@@ -278,6 +289,12 @@ QPushButton:disabled {
 #PrimaryButton:pressed {
     background: __ACCENT__;
     border-color: __LINE_STRONG__;
+}
+#PrimaryButton:disabled {
+    background: __FIELD__;
+    border-color: __LINE__;
+    color: __MUTED__;
+    font-weight: 600;
 }
 #UpdateButton {
     background: __ACCENT_SOFT__;
@@ -433,13 +450,77 @@ QPushButton:disabled {
 }
 #NavButton {
     text-align: left;
+    padding: 8px 12px;
     padding-left: 14px;
     font-weight: 600;
+    border-radius: 10px;
+    border: 1px solid __LINE_STRONG__;
+    background: __TRACK__;
+    color: __HEADLINE__;
+}
+#NavButton:hover {
+    background: __BUTTON_SOFT_HOVER__;
+    border-color: __LINE_STRONG__;
+}
+#NavButton:pressed {
+    background: __BUTTON_SOFT__;
+    border-color: __LINE_STRONG__;
+    padding-top: 9px;
+    padding-bottom: 7px;
 }
 #NavButton:checked {
     background: __ACCENT_SOFT__;
     border-color: __ACCENT__;
     color: __HEADLINE__;
+}
+/* Sidebar bottom row + link-page file/cache utilities: visible on light panels (avoid four identical AccentGhost). */
+#SidebarFooterButton, #NeutralToolButton {
+    border-radius: 10px;
+    border: 1px solid __LINE_STRONG__;
+    background: __TRACK__;
+    color: __HEADLINE__;
+    padding: 8px 12px;
+    font-weight: 600;
+}
+#SidebarFooterButton:hover, #NeutralToolButton:hover {
+    background: __BUTTON_SOFT_HOVER__;
+    border-color: __LINE_STRONG__;
+}
+#SidebarFooterButton:pressed, #NeutralToolButton:pressed {
+    background: __BUTTON_SOFT__;
+    border-color: __LINE_STRONG__;
+    padding-top: 9px;
+    padding-bottom: 7px;
+}
+#SidebarFooterButton:disabled, #NeutralToolButton:disabled {
+    color: __MUTED__;
+    border-color: __LINE__;
+    background: __FIELD__;
+    font-weight: 600;
+}
+#SidebarFooterGhost {
+    border-radius: 10px;
+    border: 1px solid __LINE_STRONG__;
+    background: transparent;
+    color: __HEADLINE__;
+    padding: 8px 12px;
+    font-weight: 600;
+}
+#SidebarFooterGhost:hover {
+    background: __TRACK__;
+    border-color: __LINE_STRONG__;
+}
+#SidebarFooterGhost:pressed {
+    background: __BUTTON_SOFT_HOVER__;
+    border-color: __LINE_STRONG__;
+    padding-top: 9px;
+    padding-bottom: 7px;
+}
+#SidebarFooterGhost:disabled {
+    color: __MUTED__;
+    border-color: __LINE__;
+    background: transparent;
+    font-weight: 600;
 }
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
     background: __FIELD__;
@@ -565,10 +646,36 @@ QSpinBox[settingField="true"]::up-button, QDoubleSpinBox[settingField="true"]::u
 #PreviewPlaceholder {
     min-height: 260px;
 }
+#ThumbPreview {
+    background: __FIELD__;
+    border: 1px solid __LINE__;
+    border-radius: 4px;
+}
+#ThumbPreview:hover {
+    border-color: __ACCENT__;
+}
 #VideoContainer {
     background: __VIDEO_BG__;
     border: 1px solid __LINE__;
     border-radius: 16px;
+}
+#PreviewTimeLabel {
+    color: __HEADLINE__;
+    font-family: Consolas, "Microsoft YaHei UI", monospace;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 5px 10px;
+    background: __TRACK__;
+    border: 1px solid __LINE__;
+    border-radius: 8px;
+    min-width: 102px;
+}
+#PreviewSegmentQueueHint {
+    color: #38bdf8;
+    font-size: 13px;
+    font-weight: 700;
+    background: transparent;
+    padding: 0 4px 2px 4px;
 }
 #ResultTable {
     background: __FIELD__;
@@ -845,26 +952,28 @@ QListWidget#ModelFileList::item:selected {
     border: 1px solid __LINE__;
     border-radius: 12px;
     gridline-color: __LINE__;
-    alternate-background-color: __TRACK__;
     outline: none;
 }
 #DialogRulesTable::item, #ResourceDialogTable::item {
+    background: __FIELD__;
     padding: 6px 8px;
     border: none;
     border-bottom: 1px solid __LINE__;
 }
 #DialogRulesTable::item:hover, #ResourceDialogTable::item:hover {
-    background: __ACCENT_SOFT__;
+    background: __LINE_STRONG__;
     color: __HEADLINE__;
     border-bottom: 1px solid __LINE__;
 }
-#DialogRulesTable::item:selected, #ResourceDialogTable::item:selected {
-    background: __TRACK__;
-    color: __HEADLINE__;
-    border-bottom: 1px solid __LINE__;
-}
+#DialogRulesTable::item:selected, #ResourceDialogTable::item:selected,
 #DialogRulesTable::item:selected:active, #ResourceDialogTable::item:selected:active {
     background: __ACCENT_SOFT__;
+    color: __HEADLINE__;
+    border-bottom: 1px solid __LINE__;
+}
+#DialogRulesTable::item:selected:hover, #ResourceDialogTable::item:selected:hover {
+    background: __ACCENT_SOFT__;
+    color: __HEADLINE__;
     border-bottom: 1px solid __LINE__;
 }
 #DialogRulesTable QLineEdit {
@@ -978,12 +1087,12 @@ ClickableLabel[detailActive="true"] {
 #RemixDisclosureHeader:hover {
     background: __ACCENT_SOFT__;
 }
-#RemixDisclosureChevron {
-    color: __MUTED__;
-    font-size: 14px;
-    font-weight: 700;
+#RemixDisclosureChevronBtn {
     background: transparent;
-    min-height: 22px;
+    border: none;
+    padding: 2px;
+    min-width: 28px;
+    min-height: 28px;
 }
 #RemixScopeLibTree {
     outline: none;
@@ -1112,7 +1221,9 @@ def build_style(colors):
     return style
 
 
-THEME_COLORS_DARK = {
+from ui.widgets.theme_tokens import load_merged_theme_colors
+
+THEME_COLORS_DARK_BASE = {
     "WINDOW": "#0b1220",
     "TEXT": "#d7deea",
     "HEADLINE": "#f5f8ff",
@@ -1145,7 +1256,7 @@ THEME_COLORS_DARK = {
     "INVERSE_TEXT": "#ffffff",
 }
 
-THEME_COLORS_LIGHT = {
+THEME_COLORS_LIGHT_BASE = {
     "WINDOW": "#f3f6fb",
     "TEXT": "#223047",
     "HEADLINE": "#121826",
@@ -1178,6 +1289,9 @@ THEME_COLORS_LIGHT = {
     "INVERSE_TEXT": "#ffffff",
 }
 
+THEME_COLORS_DARK = load_merged_theme_colors(True, THEME_COLORS_DARK_BASE)
+THEME_COLORS_LIGHT = load_merged_theme_colors(False, THEME_COLORS_LIGHT_BASE)
+
 DARK_STYLE = build_style(THEME_COLORS_DARK)
 LIGHT_STYLE = build_style(THEME_COLORS_LIGHT)
 
@@ -1194,3 +1308,19 @@ def repolish_widget(widget):
     if style is not None:
         style.unpolish(widget)
         style.polish(widget)
+
+
+def set_runtime_banner_warn(banner, warn: bool) -> None:
+    """``warn=True``: missing-model / FFmpeg strip (amber). ``False``: default accent info strip."""
+    if banner is None:
+        return
+    banner.setProperty("bannerTone", "warn" if warn else "")
+    repolish_widget(banner)
+    try:
+        from PySide6.QtWidgets import QLabel, QPushButton
+    except ImportError:
+        return
+    for child in banner.findChildren(QLabel):
+        repolish_widget(child)
+    for child in banner.findChildren(QPushButton):
+        repolish_widget(child)

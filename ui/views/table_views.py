@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
 from src.domain.remote_search_hit import coerce_remote_search_hit
 from src.domain.remix_search_hit import coerce_remix_search_hit
 from src.domain.search_hit import coerce_search_hit
+from ui.widgets.table_specs import LocalSearchCol, NetworkLinkCol, RemixCol
+from ui.widgets.thumb_cell import make_thumb_label
 from ui.widgets.styles import repolish_widget
 
 
@@ -71,7 +73,10 @@ def populate_library_table(library_list_host, libraries, is_indexing, on_sync, o
 
 def populate_result_table(table, results, on_preview, on_locate, on_export, texts):
     table.setRowCount(0)
-    table.setHorizontalHeaderLabels(texts["result_headers"])
+    if hasattr(table, "apply_header_labels"):
+        table.apply_header_labels(texts)
+    else:
+        table.setHorizontalHeaderLabels(texts["result_headers"])
     table.setUpdatesEnabled(False)
 
     for row, raw in enumerate(results):
@@ -95,32 +100,30 @@ def populate_result_table(table, results, on_preview, on_locate, on_export, text
                 "score": float(score),
             },
         )
-        table.setItem(row, 0, order_item)
+        table.setItem(row, LocalSearchCol.ORDER, order_item)
 
-        preview_placeholder = QLabel(texts["thumb_loading"])
-        preview_placeholder.setAlignment(Qt.AlignCenter)
-        table.setCellWidget(row, 1, preview_placeholder)
+        table.setCellWidget(row, LocalSearchCol.PREVIEW, make_thumb_label(text=texts["thumb_loading"]))
 
         name_item = QTableWidgetItem(os.path.basename(video_path))
         name_item.setTextAlignment(Qt.AlignCenter)
         name_item.setToolTip(video_path)
-        table.setItem(row, 2, name_item)
+        table.setItem(row, LocalSearchCol.VIDEO, name_item)
 
         time_item = QTableWidgetItem(_format_time_range(start_sec, end_sec))
         time_item.setTextAlignment(Qt.AlignCenter)
-        table.setItem(row, 3, time_item)
+        table.setItem(row, LocalSearchCol.RANGE, time_item)
 
         mode_item = QTableWidgetItem(_result_mode_label(start_sec, end_sec, texts))
         mode_item.setTextAlignment(Qt.AlignCenter)
-        table.setItem(row, 4, mode_item)
+        table.setItem(row, LocalSearchCol.MODE, mode_item)
 
         score_item = QTableWidgetItem(f"{int(score * 100)}%")
         score_item.setTextAlignment(Qt.AlignCenter)
-        table.setItem(row, 5, score_item)
+        table.setItem(row, LocalSearchCol.SCORE, score_item)
 
         table.setCellWidget(
             row,
-            6,
+            LocalSearchCol.ACTIONS,
             _build_result_actions(video_path, start_sec, end_sec, on_preview, on_locate, on_export, texts),
         )
 
@@ -129,19 +132,10 @@ def populate_result_table(table, results, on_preview, on_locate, on_export, text
 
 def populate_remix_result_table(table, results, remix_video_path, on_compare, on_locate, on_export, texts):
     table.setRowCount(0)
-    table.setColumnCount(8)
-    hdr = table.horizontalHeader()
-    for col in range(8):
-        hdr.setSectionResizeMode(col, QHeaderView.Fixed)
-    hdr.setSectionResizeMode(2, QHeaderView.Stretch)
-    table.setColumnWidth(0, 46)
-    table.setColumnWidth(1, 164)
-    table.setColumnWidth(3, 108)
-    table.setColumnWidth(4, 108)
-    table.setColumnWidth(5, 56)
-    table.setColumnWidth(6, 100)
-    table.setColumnWidth(7, 250)
-    table.setHorizontalHeaderLabels(texts["remix_result_headers"])
+    if hasattr(table, "apply_header_labels"):
+        table.apply_header_labels(texts)
+    else:
+        table.setHorizontalHeaderLabels(texts["remix_result_headers"])
     table.setUpdatesEnabled(False)
     remix_path = os.fspath(remix_video_path or "").strip()
 
@@ -173,28 +167,26 @@ def populate_remix_result_table(table, results, remix_video_path, on_compare, on
                 "match_confidence": match_conf,
             },
         )
-        table.setItem(row, 0, order_item)
+        table.setItem(row, RemixCol.ORDER, order_item)
 
-        preview_placeholder = QLabel(texts["thumb_loading"])
-        preview_placeholder.setAlignment(Qt.AlignCenter)
-        table.setCellWidget(row, 1, preview_placeholder)
+        table.setCellWidget(row, RemixCol.PREVIEW, make_thumb_label(text=texts["thumb_loading"]))
 
         name_item = QTableWidgetItem(os.path.basename(video_path))
         name_item.setTextAlignment(Qt.AlignCenter)
         name_item.setToolTip(video_path)
-        table.setItem(row, 2, name_item)
+        table.setItem(row, RemixCol.VIDEO, name_item)
 
         source_time_item = QTableWidgetItem(_format_time_range(start_sec, end_sec))
         source_time_item.setTextAlignment(Qt.AlignCenter)
-        table.setItem(row, 3, source_time_item)
+        table.setItem(row, RemixCol.SOURCE_TIME, source_time_item)
 
         remix_time_item = QTableWidgetItem(_format_time_range(remix_start, remix_end))
         remix_time_item.setTextAlignment(Qt.AlignCenter)
-        table.setItem(row, 4, remix_time_item)
+        table.setItem(row, RemixCol.REMIX_TIME, remix_time_item)
 
         speed_item = QTableWidgetItem(f"{speed_k:.2f}x")
         speed_item.setTextAlignment(Qt.AlignCenter)
-        table.setItem(row, 5, speed_item)
+        table.setItem(row, RemixCol.SPEED, speed_item)
 
         match_item = QTableWidgetItem(f"{int(score * 100)}% · {int(match_conf * 100)}%")
         match_item.setToolTip(
@@ -206,11 +198,11 @@ def populate_remix_result_table(table, results, remix_video_path, on_compare, on
             )
         )
         match_item.setTextAlignment(Qt.AlignCenter)
-        table.setItem(row, 6, match_item)
+        table.setItem(row, RemixCol.MATCH, match_item)
 
         table.setCellWidget(
             row,
-            7,
+            RemixCol.ACTIONS,
             _build_remix_result_actions(
                 remix_path,
                 remix_start,
@@ -280,7 +272,10 @@ def populate_link_result_table(table, results, source_link, on_preview, on_locat
 
 def populate_network_result_table(table, results, texts):
     table.setRowCount(0)
-    table.setHorizontalHeaderLabels(texts["network_result_headers"])
+    if hasattr(table, "apply_header_labels"):
+        table.apply_header_labels(texts)
+    else:
+        table.setHorizontalHeaderLabels(texts["network_result_headers"])
     table.setUpdatesEnabled(False)
 
     for row, raw in enumerate(results):
@@ -289,26 +284,26 @@ def populate_network_result_table(table, results, texts):
 
         order_item = QTableWidgetItem(str(row + 1))
         order_item.setTextAlignment(Qt.AlignCenter)
-        table.setItem(row, 0, order_item)
+        table.setItem(row, NetworkLinkCol.ORDER, order_item)
 
         title_item = QTableWidgetItem(hit.title)
         title_item.setToolTip(hit.title)
-        table.setItem(row, 1, title_item)
+        table.setItem(row, NetworkLinkCol.TITLE, title_item)
 
         time_item = QTableWidgetItem(_format_time_value(hit.time_sec))
         time_item.setTextAlignment(Qt.AlignCenter)
-        table.setItem(row, 2, time_item)
+        table.setItem(row, NetworkLinkCol.TIME, time_item)
 
         score_item = QTableWidgetItem(f"{int(hit.score * 100)}%")
         score_item.setTextAlignment(Qt.AlignCenter)
-        table.setItem(row, 3, score_item)
+        table.setItem(row, NetworkLinkCol.SCORE, score_item)
 
         source_link = hit.source_link
         source_item = QTableWidgetItem(source_link)
         source_item.setToolTip(source_link)
-        table.setItem(row, 4, source_item)
+        table.setItem(row, NetworkLinkCol.SOURCE, source_item)
 
-        table.setCellWidget(row, 5, _build_network_result_actions(source_link, texts))
+        table.setCellWidget(row, NetworkLinkCol.ACTIONS, _build_network_result_actions(source_link, texts))
 
     table.setUpdatesEnabled(True)
 

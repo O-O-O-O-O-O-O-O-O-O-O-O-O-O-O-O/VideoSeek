@@ -1,10 +1,8 @@
 import time
 
-from PySide6.QtCore import QObject, Qt
-from PySide6.QtWidgets import QLabel
+from PySide6.QtCore import QObject
 
 from src.core.clip_embedding import get_engine_runtime_status, get_engine_runtime_warning
-from ui.views.table_views import populate_result_table
 from ui.threading_utils import shutdown_thread
 from ui.workers import SearchWarmupWorker, SearchWorker, ThumbLoader
 
@@ -19,6 +17,9 @@ class SearchController(QObject):
         self.start_time = 0.0
         self._gpu_warning_shown = False
         self._warmup_started = False
+
+    def _result_view(self):
+        return self.parent_window.search_page.result_view
 
     def start_search(self, query, is_text):
         self.stop_thumbnail_loading()
@@ -35,7 +36,7 @@ class SearchController(QObject):
 
     def clear_results(self):
         self.stop_thumbnail_loading()
-        self.parent_window.result_table.setRowCount(0)
+        self._result_view().clear()
 
     def shutdown(self):
         self.stop_thumbnail_loading()
@@ -54,14 +55,14 @@ class SearchController(QObject):
         shutdown_thread(self.thumb_thread, stop_first=True)
 
     def _display_results(self, results):
-        self.parent_window._update_inference_backend_hint()
+        self.parent_window.push_inference_status()
+        result_view = self._result_view()
         if not results:
-            self.parent_window.result_table.setRowCount(0)
+            result_view.clear()
             self.parent_window.search_page.lbl_status.setText(self.parent_window.texts["no_results"])
             return
 
-        populate_result_table(
-            self.parent_window.result_table,
+        result_view.populate_local(
             results,
             self.parent_window.handle_play,
             self.parent_window.open_result_in_explorer,
@@ -74,24 +75,18 @@ class SearchController(QObject):
         )
 
         self.thumb_thread = ThumbLoader(results)
-        self.thumb_thread.thumb_ready.connect(self._update_row_thumb)
+        self.thumb_thread.thumb_ready.connect(result_view.set_thumbnail)
         self.thumb_thread.start()
-
-    def _update_row_thumb(self, row, pixmap):
-        label = QLabel()
-        label.setAlignment(Qt.AlignCenter)
-        label.setPixmap(pixmap)
-        self.parent_window.result_table.setCellWidget(row, 1, label)
 
     def _finish_search(self):
         self.parent_window.search_page.btn_search.setEnabled(True)
 
     def _finish_warmup(self):
         self.warmup_worker = None
-        self.parent_window._update_inference_backend_hint()
+        self.parent_window.push_inference_status()
 
     def _handle_search_error(self, error_text):
-        self.parent_window._update_inference_backend_hint()
+        self.parent_window.push_inference_status()
         self.parent_window.search_page.lbl_status.setText(self.parent_window.texts["search_failed"])
         runtime_warning = get_engine_runtime_warning()
         if runtime_warning:

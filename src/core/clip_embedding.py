@@ -2,20 +2,24 @@ import ctypes
 import json
 import os
 import platform
+import queue
 import site
 import subprocess
 import sys
+import threading
+import time
 
 import cv2
 import numpy as np
 import onnxruntime as ort
 
 from src.app.config import load_config
+from src.app.indexing_progress import IndexingProgressReporter
 from src.app.logging_utils import get_logger
 from src.core.inference_registry import build_inference_engine, register_inference_engine
-from src.core.extract_frames import stream_frames_with_ffmpeg
+from src.core.extract_frames import stream_frames_with_ffmpeg, terminate_ffmpeg_process
 from src.core.faiss_index import create_clip_index
-from src.core.semantic_chunking import build_semantic_chunks, chunk_config_payload
+from src.core.semantic_chunking import SemanticChunkStreamBuilder, chunk_config_payload
 from src.storage.asset_store import save_vector_payload
 from src.storage.config_store import (
     get_active_embedding_spec,
@@ -24,7 +28,13 @@ from src.storage.config_store import (
     get_effective_prefer_gpu,
 )
 from src.core.tokenizer import tokenize
-from src.utils import ensure_folder_exists, ensure_model_files, free_memory, measure_time
+from src.utils import (
+    ensure_folder_exists,
+    ensure_model_files,
+    free_memory,
+    get_video_duration_seconds,
+    resolve_sampling_fps,
+)
 
 logger = get_logger("clip_embedding")
 _GPU_PROBE_CACHE = None
@@ -88,13 +98,27 @@ class CLIPOnnxEngine:
         self._cpu_visual_session = None
         self._visual_force_cpu = False
 
-    def _preprocess(self, img_bgr):
+    def _preprocess_into(self, img_bgr, out_chw):
+        """Normalize one BGR frame into CHW float32 ``out_chw`` shaped (3, 224, 224).
+
+        Frames from ``stream_frames_with_ffmpeg`` are already 224×224; skip resize there.
+        File paths may be arbitrary resolution and still need resize.
+        """
         img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-        img = cv2.resize(img, (224, 224), interpolation=cv2.INTER_CUBIC)
-        img = img.astype(np.float32) / 255.0
-        img = (img - self.mean) / self.std
-        img = img.transpose(2, 0, 1)
-        return img[np.newaxis, :].astype(np.float32)
+        h, w = int(img.shape[0]), int(img.shape[1])
+        if h != 224 or w != 224:
+            interp = cv2.INTER_AREA if (h > 224 or w > 224) else cv2.INTER_LINEAR
+            img = cv2.resize(img, (224, 224), interpolation=interp)
+        t = img.astype(np.float32, copy=False)
+        t *= 1.0 / 255.0
+        t -= self.mean
+        t /= self.std
+        out_chw[:] = np.transpose(t, (2, 0, 1))
+
+    def _preprocess(self, img_bgr):
+        out = np.empty((3, 224, 224), dtype=np.float32)
+        self._preprocess_into(img_bgr, out)
+        return out.reshape(1, 3, 224, 224)
 
     def imread_chinese(self, path):
         with open(path, "rb") as handle:
@@ -104,38 +128,63 @@ class CLIPOnnxEngine:
     def encode_images(self, frames):
         # Retained intentionally: this public image-encoding entrypoint is
         # reached via helper wrappers and may be missed by static analysis.
+        with _INFERENCE_LOCK:
+            return self._encode_images_locked(frames)
+
+    def _encode_images_locked(self, frames):
         if self._feature_dim is None:
             dummy = np.zeros((1, 3, 224, 224), dtype=np.float32)
             dummy_feat = self.visual_session.run(None, {"input": dummy})[0]
             self._feature_dim = dummy_feat.shape[1] if dummy_feat.ndim > 1 else dummy_feat.shape[0]
 
         embeddings = []
-        preprocessed_batch = []
         batch_size = self.embedding_batch_size
+        work = np.empty((batch_size, 3, 224, 224), dtype=np.float32)
+        filled = 0
+
+        def flush():
+            nonlocal filled
+            if filled == 0:
+                return
+            embeddings.append(self._run_visual_batch(work[:filled]))
+            filled = 0
+
         for frame in frames:
             image = self.imread_chinese(frame) if isinstance(frame, str) else frame
             if image is None:
                 continue
-            preprocessed_batch.append(self._preprocess(image)[0])
-            if len(preprocessed_batch) < batch_size:
+            self._preprocess_into(image, work[filled])
+            filled += 1
+            if filled < batch_size:
                 continue
-            embeddings.append(self._run_visual_batch(preprocessed_batch))
-            preprocessed_batch = []
+            flush()
 
-        if preprocessed_batch:
-            embeddings.append(self._run_visual_batch(preprocessed_batch))
+        if filled:
+            embeddings.append(self._run_visual_batch(work[:filled]))
+            filled = 0
 
         if not embeddings:
             return np.empty((0, self._feature_dim), dtype=np.float32)
         free_memory()
         return np.vstack(embeddings)
 
-    def _run_visual_batch(self, preprocessed_batch):
-        if not preprocessed_batch:
+    def _run_visual_batch(self, input_blob):
+        """Run visual model on ``input_blob`` (N, 3, 224, 224) float32, or a list of (3,224,224) arrays."""
+        if isinstance(input_blob, list):
+            if not input_blob:
+                feature_dim = self._feature_dim or 0
+                return np.empty((0, feature_dim), dtype=np.float32)
+            input_blob = np.stack(input_blob, axis=0)
+
+        if input_blob is None or getattr(input_blob, "size", 0) == 0 or input_blob.shape[0] == 0:
             feature_dim = self._feature_dim or 0
             return np.empty((0, feature_dim), dtype=np.float32)
 
-        input_blob = np.stack(preprocessed_batch, axis=0).astype(np.float32)
+        if input_blob.dtype != np.float32:
+            input_blob = np.ascontiguousarray(input_blob.astype(np.float32, copy=False))
+        elif not input_blob.flags["C_CONTIGUOUS"]:
+            input_blob = np.ascontiguousarray(input_blob)
+
         feat = self._run_visual_batch_with_recovery(input_blob).astype(np.float32)
         feat /= (np.linalg.norm(feat, axis=-1, keepdims=True) + 1e-10)
         return feat
@@ -218,24 +267,27 @@ class CLIPOnnxEngine:
     def encode_text(self, text):
         # Retained intentionally: this public text-encoding entrypoint is
         # reached via helper wrappers and may be missed by static analysis.
-        tokens = tokenize([text]).astype(np.int32)
-        feat = self.text_session.run(None, {"input": tokens})[0].astype(np.float32)
-        feat /= (np.linalg.norm(feat, axis=-1, keepdims=True) + 1e-10)
-        return feat
+        with _INFERENCE_LOCK:
+            tokens = tokenize([text]).astype(np.int32)
+            feat = self.text_session.run(None, {"input": tokens})[0].astype(np.float32)
+            feat /= (np.linalg.norm(feat, axis=-1, keepdims=True) + 1e-10)
+            return feat
 
 
 engine = None
+_INFERENCE_LOCK = threading.RLock()
 
 
 def get_engine():
     global engine
-    if engine is None:
-        logger.info("Inference engine is not initialized; creating a new runtime instance")
-        config = load_config()
-        profile = get_active_model_profile(config=config)
-        provider = str(profile.get("provider", "") or "").strip() or "clip_onnx"
-        engine = build_inference_engine(provider)
-    return engine
+    with _INFERENCE_LOCK:
+        if engine is None:
+            logger.info("Inference engine is not initialized; creating a new runtime instance")
+            config = load_config()
+            profile = get_active_model_profile(config=config)
+            provider = str(profile.get("provider", "") or "").strip() or "clip_onnx"
+            engine = build_inference_engine(provider)
+        return engine
 
 
 def get_clip_embeddings_batch(frames):
@@ -314,9 +366,10 @@ def get_engine_runtime_status():
 
 def reset_engine():
     global engine, _GPU_PROBE_CACHE
-    logger.info("Resetting inference engine and cached GPU probe result")
-    engine = None
-    _GPU_PROBE_CACHE = None
+    with _INFERENCE_LOCK:
+        logger.info("Resetting inference engine and cached GPU probe result")
+        engine = None
+        _GPU_PROBE_CACHE = None
 
 
 def prepare_inference_runtime(prefer_gpu=None, provider=None):
@@ -777,11 +830,34 @@ def _get_windows_build_number():
 
 
 def _build_session_options(prefer_gpu, disable_optimizations=False):
+    """ONNX Runtime session tuning.
+
+    DirectML keeps sequential execution and mem_pattern off for stability. Graph optimizations are
+    enabled by default unless ``disable_optimizations`` is set.
+
+    When ``prefer_gpu`` is true, ``intra_op_num_threads`` is capped so ORT's CPU-side work does not
+    starve FFmpeg frame decoding. Override with env ``VIDEOSEEK_ORT_INTRA_OP_THREADS`` (integer 1–32).
+    """
     session_options = ort.SessionOptions()
+    if not disable_optimizations:
+        session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
     if prefer_gpu:
         # DirectML sessions require sequential execution and are more stable with memory pattern disabled.
         session_options.enable_mem_pattern = False
         session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        session_options.inter_op_num_threads = 1
+        raw_threads = os.environ.get("VIDEOSEEK_ORT_INTRA_OP_THREADS", "").strip()
+        if raw_threads:
+            try:
+                intra = int(raw_threads)
+                intra = max(1, min(32, intra))
+            except ValueError:
+                cores = os.cpu_count() or 4
+                intra = max(1, min(4, cores // 4))
+        else:
+            cores = os.cpu_count() or 4
+            intra = max(1, min(4, cores // 4))
+        session_options.intra_op_num_threads = intra
     if disable_optimizations:
         # Some third-party exported graphs can fail specific ORT graph fusions
         # on certain builds. Keep runtime stable by disabling graph optimizations.
@@ -870,69 +946,349 @@ def _candidate_dll_dirs():
     return list(dict.fromkeys(directories))
 
 
-@measure_time("Video indexing time:")
-def generate_vectors_and_index_for_video(video_path, video_id, index_dir, vector_dir):
+def _drain_index_frame_queue(frame_queue):
+    """Drop pending frames so a blocked reader thread can finish (error paths)."""
+    while True:
+        try:
+            frame_queue.get_nowait()
+        except queue.Empty:
+            return
+
+
+def _indexing_should_stop(should_stop_callback, stop_event):
+    if stop_event is not None and stop_event.is_set():
+        return True
+    return bool(should_stop_callback and should_stop_callback())
+
+
+def _kill_indexing_ffmpeg(process_holder):
+    if not process_holder:
+        return
+    process = process_holder.get("process")
+    if process is not None:
+        terminate_ffmpeg_process(process)
+
+
+def _run_indexing_frame_reader(
+    video_path,
+    frame_queue,
+    stop_event,
+    reader_error,
+    stream_kwargs,
+):
+    """Background thread: FFmpeg pipe decode runs here while the main thread runs GPU batches."""
+    try:
+        for frame, timestamp in stream_frames_with_ffmpeg(video_path, **stream_kwargs):
+            if stop_event.is_set():
+                return
+            while True:
+                if stop_event.is_set():
+                    return
+                try:
+                    frame_queue.put((frame, timestamp), timeout=0.25)
+                    break
+                except queue.Full:
+                    continue
+    except Exception as exc:
+        logger.exception("Indexing frame reader failed for %s", video_path)
+        reader_error.append(exc)
+    finally:
+        try:
+            frame_queue.put(None, timeout=30.0)
+        except queue.Full:
+            # Consumer must drain; avoid hanging forever on a stuck queue.
+            logger.warning("Indexing frame queue still full while sending end sentinel for %s", video_path)
+
+
+def _indexing_use_overlap_frame_reader():
+    """Overlap decode (reader thread) with encode (main thread). Disable via VIDEOSEEK_DISABLE_INDEX_FRAME_OVERLAP=1 for A/B."""
+    v = os.environ.get("VIDEOSEEK_DISABLE_INDEX_FRAME_OVERLAP", "").strip().lower()
+    return v not in ("1", "true", "yes")
+
+
+def _accumulate_inference_batch(vector_parts, chunk_builder, batch_vectors, timestamp_batch):
+    if batch_vectors is None or len(batch_vectors) == 0:
+        return 0
+    batch_arr = np.asarray(batch_vectors, dtype=np.float32)
+    if batch_arr.ndim == 1:
+        batch_arr = batch_arr.reshape(1, -1)
+    count = int(batch_arr.shape[0])
+    vector_parts.append(batch_arr)
+    if chunk_builder is not None:
+        chunk_builder.extend(batch_arr, timestamp_batch[:count])
+    return count
+
+
+def _estimate_index_frame_total(video_path, config=None):
+    duration = get_video_duration_seconds(video_path)
+    if duration is None or float(duration) <= 0:
+        return 0
+    runtime_config = config or load_config()
+    fps = resolve_sampling_fps(float(duration), config=runtime_config)
+    return max(1, int(round(float(duration) * float(fps))))
+
+
+def _encode_batched_from_frame_stream(
+    frame_stream,
+    engine_instance,
+    frame_batch_size,
+    *,
+    should_stop_callback=None,
+    process_holder=None,
+    stop_event=None,
+    progress_reporter=None,
+    estimated_frame_total=0,
+    vector_parts=None,
+    chunk_builder=None,
+):
+    """Synchronous: pull from ``frame_stream`` and run ``encode_images`` in batches."""
     frame_batch = []
     timestamp_batch = []
-    vector_batches = []
+    vector_parts = [] if vector_parts is None else vector_parts
     timestamps = []
-    engine_instance = get_engine()
-    frame_batch_size = engine_instance.embedding_batch_size
+    frames_decoded = 0
+    frames_encoded = 0
+    estimated_total = max(0, int(estimated_frame_total or 0))
 
-    for frame, timestamp in stream_frames_with_ffmpeg(video_path):
+    if progress_reporter is not None:
+        progress_reporter.emit("decode", 0, estimated_total, force=True)
+
+    for frame, timestamp in frame_stream:
+        if _indexing_should_stop(should_stop_callback, stop_event):
+            _kill_indexing_ffmpeg(process_holder)
+            raise InterruptedError("Index update stopped during frame extraction")
+        frames_decoded += 1
+        if progress_reporter is not None:
+            total = max(estimated_total, frames_decoded)
+            progress_reporter.emit("decode", frames_decoded, total)
         frame_batch.append(frame)
         timestamp_batch.append(timestamp)
         if len(frame_batch) < frame_batch_size:
             continue
         batch_vectors = engine_instance.encode_images(frame_batch)
         if len(batch_vectors) > 0:
-            vector_batches.append(batch_vectors)
-            timestamps.extend(timestamp_batch[:len(batch_vectors)])
+            added = _accumulate_inference_batch(vector_parts, chunk_builder, batch_vectors, timestamp_batch)
+            timestamps.extend(timestamp_batch[:added])
+            frames_encoded += added
+            if progress_reporter is not None:
+                total = max(estimated_total, frames_decoded, frames_encoded)
+                progress_reporter.emit("encode", frames_encoded, total)
         frame_batch = []
         timestamp_batch = []
-
     if frame_batch:
         batch_vectors = engine_instance.encode_images(frame_batch)
         if len(batch_vectors) > 0:
-            vector_batches.append(batch_vectors)
-            timestamps.extend(timestamp_batch[:len(batch_vectors)])
+            added = _accumulate_inference_batch(vector_parts, chunk_builder, batch_vectors, timestamp_batch)
+            timestamps.extend(timestamp_batch[:added])
+            frames_encoded += added
+            if progress_reporter is not None:
+                total = max(estimated_total, frames_decoded, frames_encoded)
+                progress_reporter.emit("encode", frames_encoded, total, force=True)
+    if progress_reporter is not None:
+        total = max(estimated_total, frames_decoded, frames_encoded)
+        progress_reporter.emit("decode", frames_decoded, total, force=True)
+        progress_reporter.emit("encode", frames_encoded, total, force=True)
 
-    if not vector_batches:
+    return timestamps
+
+
+def generate_vectors_and_index_for_video(
+    video_path,
+    video_id,
+    index_dir,
+    vector_dir,
+    should_stop_callback=None,
+    progress_callback=None,
+    file_index=1,
+    file_total=1,
+):
+    wall_start = time.perf_counter()
+    log_tag = f"{video_id} {os.path.basename(video_path)}"
+    frame_batch = []
+    timestamp_batch = []
+    vector_parts = []
+    timestamps = []
+    engine_instance = get_engine()
+    frame_batch_size = engine_instance.embedding_batch_size
+    pipe_start = time.perf_counter()
+    process_holder = {}
+    stop_event = threading.Event()
+    runtime_config = load_config()
+    estimated_frame_total = _estimate_index_frame_total(video_path, config=runtime_config)
+    chunk_config = chunk_config_payload(
+        similarity_threshold=runtime_config.get("similarity_threshold", 0.85),
+        max_chunk_duration=runtime_config.get("max_chunk_duration", 5.0),
+        min_chunk_size=runtime_config.get("min_chunk_size", 2),
+        similarity_mode=runtime_config.get("chunk_similarity_mode", "chunk"),
+    )
+    chunk_builder = SemanticChunkStreamBuilder(**chunk_config)
+    progress_reporter = (
+        IndexingProgressReporter(
+            progress_callback,
+            video_name=os.path.basename(video_path),
+            file_index=file_index,
+            file_total=file_total,
+        )
+        if progress_callback
+        else None
+    )
+    frames_decoded = 0
+    frames_encoded = 0
+
+    def _should_stop():
+        return _indexing_should_stop(should_stop_callback, stop_event)
+
+    def _report_decode(force=False):
+        if progress_reporter is None:
+            return
+        total = max(estimated_frame_total, frames_decoded, frames_encoded)
+        progress_reporter.emit("decode", frames_decoded, total, force=force)
+
+    def _report_encode(force=False):
+        if progress_reporter is None:
+            return
+        total = max(estimated_frame_total, frames_decoded, frames_encoded)
+        progress_reporter.emit("encode", frames_encoded, total, force=force)
+
+    stream_kwargs = {
+        "should_stop": _should_stop,
+        "process_holder": process_holder,
+    }
+
+    if progress_reporter is not None:
+        progress_reporter.emit("decode", 0, estimated_frame_total, force=True)
+
+    if _indexing_use_overlap_frame_reader():
+        frame_queue = queue.Queue(maxsize=max(32, frame_batch_size * 4))
+        reader_error = []
+        reader_thread = threading.Thread(
+            target=_run_indexing_frame_reader,
+            args=(video_path, frame_queue, stop_event, reader_error, stream_kwargs),
+            name="VSIndexFrameReader",
+            daemon=True,
+        )
+        reader_thread.start()
+        try:
+            while True:
+                if _should_stop():
+                    _kill_indexing_ffmpeg(process_holder)
+                    raise InterruptedError("Index update stopped during frame extraction")
+                try:
+                    item = frame_queue.get(timeout=0.5)
+                except queue.Empty:
+                    continue
+                if item is None:
+                    break
+                frame, timestamp = item
+                frames_decoded += 1
+                _report_decode()
+                frame_batch.append(frame)
+                timestamp_batch.append(timestamp)
+                if len(frame_batch) < frame_batch_size:
+                    continue
+                batch_vectors = engine_instance.encode_images(frame_batch)
+                if len(batch_vectors) > 0:
+                    added = _accumulate_inference_batch(
+                        vector_parts, chunk_builder, batch_vectors, timestamp_batch
+                    )
+                    timestamps.extend(timestamp_batch[:added])
+                    frames_encoded += added
+                    _report_encode()
+                frame_batch = []
+                timestamp_batch = []
+
+            if frame_batch:
+                batch_vectors = engine_instance.encode_images(frame_batch)
+                if len(batch_vectors) > 0:
+                    added = _accumulate_inference_batch(
+                        vector_parts, chunk_builder, batch_vectors, timestamp_batch
+                    )
+                    timestamps.extend(timestamp_batch[:added])
+                    frames_encoded += added
+                    _report_encode(force=True)
+            _report_decode(force=True)
+            _report_encode(force=True)
+
+            if reader_error:
+                raise reader_error[0]
+        finally:
+            stop_event.set()
+            _drain_index_frame_queue(frame_queue)
+            reader_thread.join(timeout=600.0)
+            if reader_thread.is_alive():
+                logger.warning("Indexing frame reader thread did not stop within join timeout for %s", video_path)
+    else:
+        logger.info(
+            "Per-video index %s: overlap reader disabled (VIDEOSEEK_DISABLE_INDEX_FRAME_OVERLAP)",
+            log_tag,
+        )
+        timestamps = _encode_batched_from_frame_stream(
+            stream_frames_with_ffmpeg(video_path, **stream_kwargs),
+            engine_instance,
+            frame_batch_size,
+            should_stop_callback=should_stop_callback,
+            process_holder=process_holder,
+            stop_event=stop_event,
+            progress_reporter=progress_reporter,
+            estimated_frame_total=estimated_frame_total,
+            vector_parts=vector_parts,
+            chunk_builder=chunk_builder,
+        )
+
+    pipe_s = time.perf_counter() - pipe_start
+    logger.info("Per-video index %s: decode_queue+encode_batches %.2fs", log_tag, pipe_s)
+
+    if not vector_parts:
+        logger.info("Per-video index %s: total %.2fs (no vectors)", log_tag, time.perf_counter() - wall_start)
         return [], [], None
 
-    vectors = np.vstack(vector_batches).astype(np.float32)
+    if progress_reporter is not None:
+        progress_reporter.emit("chunk", force=True)
+    t_chunks = time.perf_counter()
+    chunks = chunk_builder.finish()
+    chunks_s = time.perf_counter() - t_chunks
+
+    t_stack = time.perf_counter()
+    vectors = np.vstack(vector_parts).astype(np.float32)
+    del vector_parts
+    stack_s = time.perf_counter() - t_stack
     free_memory()
-    config = load_config()
-    chunk_config = chunk_config_payload(
-        similarity_threshold=config.get("similarity_threshold", 0.85),
-        max_chunk_duration=config.get("max_chunk_duration", 5.0),
-        min_chunk_size=config.get("min_chunk_size", 2),
-        similarity_mode=config.get("chunk_similarity_mode", "chunk"),
-    )
-    chunks = build_semantic_chunks(
-        vectors,
-        timestamps,
-        similarity_threshold=chunk_config["similarity_threshold"],
-        max_chunk_duration=chunk_config["max_chunk_duration"],
-        min_chunk_size=chunk_config["min_chunk_size"],
-        similarity_mode=chunk_config["similarity_mode"],
-    )
 
     vector_file = os.path.normpath(os.path.join(vector_dir, f"{video_id}_vectors.npy"))
     index_file = os.path.normpath(os.path.join(index_dir, f"{video_id}_index.faiss"))
 
     ensure_folder_exists(vector_file)
+    if progress_reporter is not None:
+        progress_reporter.emit("save", force=True)
+    t_save = time.perf_counter()
     save_vector_payload(
         vectors,
         timestamps,
         vector_file,
         chunks=chunks,
         chunk_config=chunk_config,
-        embedding_spec=get_active_embedding_spec(config=config),
+        embedding_spec=get_active_embedding_spec(config=runtime_config),
     )
+    save_s = time.perf_counter() - t_save
 
     ensure_folder_exists(index_file)
+    t_faiss = time.perf_counter()
     index = create_clip_index(vectors, index_file)
+    faiss_s = time.perf_counter() - t_faiss
+
+    total_s = time.perf_counter() - wall_start
+    parts_s = pipe_s + stack_s + chunks_s + save_s + faiss_s
+    logger.info(
+        "Per-video index %s: stack_vectors %.2fs semantic_chunks %.2fs save_payload %.2fs faiss_index %.2fs "
+        "| parts_sum=%.2fs wall_total=%.2fs",
+        log_tag,
+        stack_s,
+        chunks_s,
+        save_s,
+        faiss_s,
+        parts_s,
+        total_s,
+    )
     return vectors, timestamps, index
 
 

@@ -73,7 +73,7 @@ class ModelPackagesGuiMixin:
                         "",
                         download_enabled=bool(status.get("download_enabled", False)),
                     )
-            self._update_inference_backend_hint()
+            self.push_inference_status()
             if ffmpeg_updated:
                 self.show_info_dialog(
                     self.texts["success_title"],
@@ -259,7 +259,7 @@ class ModelPackagesGuiMixin:
             reset_engine()
             self.load_settings_values()
             self.check_runtime_resources(show_dialog=False)
-            self._update_inference_backend_hint()
+            self.push_inference_status()
             self.refresh_library_table()
             active_profile = str(result.get("active_profile", "") or "").strip()
             removed_resource_dir = str(result.get("removed_resource_dir", "") or "").strip()

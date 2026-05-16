@@ -4,7 +4,7 @@ import os
 import zipfile
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import sys
@@ -628,8 +628,6 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertIn("debug injection", issues[0]["detail"].lower())
 
     @patch("src.services.indexing_service.load_video_chunks_by_id", return_value=[])
-    @patch("src.services.indexing_service.collect_existing_chunks", return_value=([], [], []))
-    @patch("src.services.indexing_service.collect_existing_vectors", return_value=([], [], []))
     @patch("src.services.indexing_service.process_single_video")
     @patch("src.services.indexing_service.cleanup_invalid_library_files", return_value=iter(()))
     @patch("src.services.indexing_service.discover_video_files", return_value=["D:\\videos\\clip.mp4"])
@@ -640,8 +638,6 @@ class IndexingServiceTests(unittest.TestCase):
         _mock_discover,
         _mock_cleanup_invalid,
         mock_process_single_video,
-        _mock_collect_vectors,
-        _mock_collect_chunks,
         _mock_load_chunks,
     ):
         meta = {"libraries": {"D:\\videos": {"files": {}}}}
@@ -658,8 +654,6 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertEqual(persist_calls, ["saved"])
 
     @patch("src.services.indexing_service.load_video_chunks_by_id", return_value=[])
-    @patch("src.services.indexing_service.collect_existing_chunks", return_value=([], [], []))
-    @patch("src.services.indexing_service.collect_existing_vectors", return_value=([], [], []))
     @patch("src.services.indexing_service.process_single_video", return_value=(None, None, True, False))
     @patch("src.services.indexing_service.cleanup_invalid_library_files", return_value=iter(()))
     @patch("src.services.indexing_service.discover_video_files", return_value=["D:\\videos\\clip.mp4"])
@@ -670,8 +664,6 @@ class IndexingServiceTests(unittest.TestCase):
         _mock_discover,
         _mock_cleanup_invalid,
         _mock_process_single_video,
-        _mock_collect_vectors,
-        _mock_collect_chunks,
         _mock_load_chunks,
     ):
         meta = {"libraries": {"D:\\videos": {"files": {}}}}
@@ -684,49 +676,40 @@ class IndexingServiceTests(unittest.TestCase):
             persist_meta_callback=lambda: persist_calls.append("saved"),
         )
 
-        self.assertEqual(result[-2], ["D:\\videos\\clip.mp4"])
-        self.assertFalse(result[-1])
+        self.assertEqual(result[0], ["D:\\videos\\clip.mp4"])
+        self.assertFalse(result[1])
         self.assertEqual(persist_calls, ["saved"])
 
     @patch("src.services.indexing_service.load_video_chunks_by_id", return_value=[])
-    @patch("src.services.indexing_service.collect_existing_chunks", return_value=([], [], []))
-    @patch("src.services.indexing_service.collect_existing_vectors")
     @patch("src.services.indexing_service.process_single_video")
     @patch("src.services.indexing_service.cleanup_invalid_library_files", return_value=iter(()))
     @patch("src.services.indexing_service.discover_video_files", return_value=["D:\\videos\\clip.mp4"])
     @patch("src.services.indexing_service.os.path.exists", return_value=True)
-    def test_scan_target_libraries_skips_reused_rows_when_existing_assets_preloaded(
+    def test_scan_target_libraries_marks_failed_videos_without_collecting_vectors(
         self,
         _mock_exists,
         _mock_discover,
         _mock_cleanup_invalid,
         mock_process_single_video,
-        mock_collect_vectors,
-        _mock_collect_chunks,
         _mock_load_chunks,
     ):
-        reused_vector = np.array([[1.0]], dtype=np.float32)
-        mock_collect_vectors.return_value = ([reused_vector], [0.0], ["D:\\videos\\clip.mp4"])
-        mock_process_single_video.return_value = (reused_vector, [0.0], False, False)
-        meta = {"libraries": {"D:\\videos": {"files": {"clip.mp4": {"vid": "vid_a"}}}}}
+        mock_process_single_video.return_value = (None, None, True, False)
+        meta = {"libraries": {"D:\\videos": {"files": {}}}}
 
-        result = indexing_service.scan_target_libraries(
+        failed_videos, search_assets_changed = indexing_service.scan_target_libraries(
             meta,
             {},
             lambda path: "vid_a",
             include_existing_assets=True,
         )
 
-        self.assertEqual(len(result[0]), 1)
-        self.assertEqual(result[1], [0.0])
-        self.assertEqual(result[2], ["D:\\videos\\clip.mp4"])
+        self.assertEqual(failed_videos, ["D:\\videos\\clip.mp4"])
+        self.assertFalse(search_assets_changed)
 
     @patch("src.services.indexing_service.get_local_model_asset_dirs", return_value={"index_dir": "index", "vector_dir": "vector"})
     @patch("src.services.indexing_service.os.remove")
     @patch("src.services.indexing_service.os.path.exists")
     @patch("src.services.indexing_service.load_video_chunks_by_id", return_value=[])
-    @patch("src.services.indexing_service.collect_existing_chunks", return_value=([], [], []))
-    @patch("src.services.indexing_service.collect_existing_vectors", return_value=([], [], []))
     @patch("src.services.indexing_service.process_single_video")
     @patch("src.services.indexing_service.cleanup_invalid_library_files", return_value=iter(["vid_bad"]))
     @patch("src.services.indexing_service.discover_video_files", return_value=[])
@@ -735,8 +718,6 @@ class IndexingServiceTests(unittest.TestCase):
         _mock_discover,
         _mock_cleanup_invalid,
         mock_process_single_video,
-        _mock_collect_vectors,
-        _mock_collect_chunks,
         _mock_load_chunks,
         mock_exists,
         mock_remove,
@@ -761,8 +742,58 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertEqual(mock_remove.call_count, 2)
         self.assertEqual(persist_calls, ["saved"])
 
-    @patch("src.workflows.update_video.build_global_index", return_value=("v", "t", "p", "i"))
-    @patch("src.workflows.update_video.scan_target_libraries", return_value=([1], [0.0], ["a.mp4"], [], [], [], [], False))
+    @patch("src.services.indexing_service.load_clip_index", return_value=object())
+    @patch("src.services.indexing_service._save_global_chunk_metadata")
+    @patch("src.services.indexing_service._save_global_frame_metadata")
+    @patch("src.services.indexing_service.IncrementalClipIndex")
+    @patch("src.services.indexing_service.get_global_model_asset_paths")
+    @patch("src.services.indexing_service.ensure_folder_exists")
+    @patch(
+        "src.services.indexing_service.iter_ready_library_chunk_sources",
+        return_value=iter([]),
+    )
+    @patch("src.services.indexing_service.iter_ready_library_frame_sources")
+    def test_build_global_index_merges_videos_incrementally(
+        self,
+        mock_iter_frames,
+        _mock_iter_chunks,
+        _mock_ensure,
+        mock_global_paths,
+        mock_incremental_cls,
+        _mock_save_frame_meta,
+        _mock_save_chunk_meta,
+        _mock_load_index,
+    ):
+        vectors_a = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
+        vectors_b = np.array([[1.0, 1.0]], dtype=np.float32)
+        mock_iter_frames.return_value = iter(
+            [
+                (vectors_a, [0.0, 1.0], "D:/a.mp4"),
+                (vectors_b, [2.0], "D:/b.mp4"),
+            ]
+        )
+        mock_global_paths.return_value = {
+            "cross_index_file": "global/cross.faiss",
+            "cross_vector_file": "global/cross.npy",
+            "cross_chunk_index_file": "global/chunk.faiss",
+            "cross_chunk_vector_file": "global/chunk.npy",
+        }
+        frame_builder = MagicMock()
+        frame_builder.total = 3
+        chunk_builder = MagicMock()
+        chunk_builder.total = 0
+        mock_incremental_cls.side_effect = [frame_builder, chunk_builder]
+
+        meta = {"libraries": {"D:/lib": {"files": {"a.mp4": {"vid": "a", "asset_state": "ready"}}}}}
+        result = indexing_service.build_global_index(meta, {})
+
+        self.assertIsNotNone(result)
+        self.assertEqual(frame_builder.add.call_count, 2)
+        frame_builder.save.assert_called_once_with("global/cross.faiss")
+        _mock_save_frame_meta.assert_called_once()
+
+    @patch("src.workflows.update_video.build_global_index", return_value=(np.array([0.0]), np.array(["a.mp4"]), object()))
+    @patch("src.workflows.update_video.scan_target_libraries", return_value=([], False))
     @patch("src.workflows.update_video.save_model_metadata")
     @patch("src.workflows.update_video.cleanup_missing_library_files", side_effect=AssertionError("should not cleanup"))
     @patch("src.workflows.update_video.load_model_metadata", return_value={"libraries": {"D:\\videos": {"files": {"a.mp4": {"vid": "vid"}}}}})
@@ -787,13 +818,13 @@ class IndexingServiceTests(unittest.TestCase):
 
         output = update_video.update_videos_flow()
 
-        self.assertEqual(output, ("v", "t", "p", "i"))
+        self.assertIsNotNone(output[0])
         mock_build.assert_called_once()
         saved_meta = mock_load_meta.return_value
         self.assertEqual(saved_meta["libraries"]["D:\\videos"]["index_state"], "ready")
 
-    @patch("src.workflows.update_video.build_global_index", return_value=("v", "t", "p", "i"))
-    @patch("src.workflows.update_video.scan_target_libraries", return_value=([1], [0.0], ["a.mp4"], [], [], [], [], False))
+    @patch("src.workflows.update_video.build_global_index", return_value=(np.array([0.0]), np.array(["a.mp4"]), object()))
+    @patch("src.workflows.update_video.scan_target_libraries", return_value=([], False))
     @patch("src.workflows.update_video.save_model_metadata")
     @patch("src.workflows.update_video.cleanup_missing_library_files", return_value=iter(()))
     @patch("src.workflows.update_video.load_model_metadata", return_value={"libraries": {"D:\\videos": {"files": {"a.mp4": {"vid": "vid"}}}}})
@@ -817,11 +848,11 @@ class IndexingServiceTests(unittest.TestCase):
 
         output = update_video.update_videos_flow(issue_callback=issues.append)
 
-        self.assertEqual(output, ("v", "t", "p", "i"))
+        self.assertIsNotNone(output[0])
         self.assertTrue(callable(mock_scan.call_args.kwargs["issue_callback"]))
 
     @patch("src.workflows.update_video.build_global_index")
-    @patch("src.workflows.update_video.scan_target_libraries", return_value=([1], [0.0], ["a.mp4"], [], [], [], [], True))
+    @patch("src.workflows.update_video.scan_target_libraries", return_value=([], True))
     @patch("src.workflows.update_video.save_model_metadata")
     @patch("src.workflows.update_video.cleanup_missing_library_files", return_value=iter(()))
     @patch(
@@ -860,8 +891,8 @@ class IndexingServiceTests(unittest.TestCase):
         self.assertEqual(_mock_load_meta.return_value["global_index_state"], library_service.GLOBAL_INDEX_STATE_STALE)
 
     @patch("src.workflows.update_video.os.path.exists")
-    @patch("src.workflows.update_video.build_global_index", return_value=("v", "t", "p", "i"))
-    @patch("src.workflows.update_video.scan_target_libraries", return_value=([1], [0.0], ["a.mp4"], [], [], [], [], False))
+    @patch("src.workflows.update_video.build_global_index", return_value=(np.array([0.0]), np.array(["a.mp4"]), object()))
+    @patch("src.workflows.update_video.scan_target_libraries", return_value=([], False))
     @patch("src.workflows.update_video.save_model_metadata")
     @patch("src.workflows.update_video.cleanup_missing_library_files", side_effect=AssertionError("should not cleanup"))
     @patch(
@@ -906,13 +937,13 @@ class IndexingServiceTests(unittest.TestCase):
 
         output = update_video.update_videos_flow()
 
-        self.assertEqual(output, ("v", "t", "p", "i"))
+        self.assertIsNotNone(output[0])
         mock_build.assert_called_once()
         saved_meta = mock_load_meta.return_value
         self.assertEqual(saved_meta["libraries"]["D:\\videos"]["files"]["missing.mp4"]["asset_state"], "missing_source")
 
-    @patch("src.workflows.update_video.build_global_index", return_value=("v", "t", "p", "i"))
-    @patch("src.workflows.update_video.scan_target_libraries", return_value=([1], [0.0], ["a.mp4"], [], [], [], [], True))
+    @patch("src.workflows.update_video.build_global_index", return_value=(np.array([0.0]), np.array(["a.mp4"]), object()))
+    @patch("src.workflows.update_video.scan_target_libraries", return_value=([], True))
     @patch("src.workflows.update_video.save_model_metadata")
     @patch("src.workflows.update_video.cleanup_missing_library_files", return_value=iter(()))
     @patch(
@@ -941,13 +972,13 @@ class IndexingServiceTests(unittest.TestCase):
 
         output = update_video.update_videos_flow()
 
-        self.assertEqual(output, ("v", "t", "p", "i"))
+        self.assertIsNotNone(output[0])
         mock_build.assert_called_once()
         self.assertEqual(mock_load_meta.return_value["global_index_state"], library_service.GLOBAL_INDEX_STATE_FRESH)
 
     @patch("src.workflows.update_video.delete_physical_video_data")
-    @patch("src.workflows.update_video.build_global_index", return_value=("v", "t", "p", "i"))
-    @patch("src.workflows.update_video.scan_target_libraries", return_value=([1], [0.0], ["a.mp4"], [], [], [], [], True))
+    @patch("src.workflows.update_video.build_global_index", return_value=(np.array([0.0]), np.array(["a.mp4"]), object()))
+    @patch("src.workflows.update_video.scan_target_libraries", return_value=([], True))
     @patch("src.workflows.update_video.save_model_metadata")
     @patch("src.workflows.update_video.cleanup_missing_library_files", return_value=iter(["vid_a"]))
     @patch("src.workflows.update_video.load_model_metadata", return_value={"libraries": {"D:\\videos": {"files": {"a.mp4": {"vid": "vid"}}}}})
@@ -971,13 +1002,13 @@ class IndexingServiceTests(unittest.TestCase):
 
         output = update_video.update_videos_flow(force_cleanup_missing_files=True)
 
-        self.assertEqual(output, ("v", "t", "p", "i"))
+        self.assertIsNotNone(output[0])
         mock_cleanup.assert_called_once()
         mock_delete_video_data.assert_called_once_with("vid_a", mock_load_config.return_value)
         mock_build.assert_called_once()
 
-    @patch("src.workflows.update_video.build_global_index", return_value=("v", "t", "p", "i"))
-    @patch("src.workflows.update_video.scan_target_libraries", return_value=([1], [0.0], ["a.mp4"], [], [], [], [], True))
+    @patch("src.workflows.update_video.build_global_index", return_value=(np.array([0.0]), np.array(["a.mp4"]), object()))
+    @patch("src.workflows.update_video.scan_target_libraries", return_value=([], True))
     @patch("src.workflows.update_video.save_model_metadata")
     @patch("src.workflows.update_video.cleanup_missing_library_files", return_value=iter(["vid_a"]))
     @patch("src.workflows.update_video.load_model_metadata", return_value={"libraries": {"D:\\videos": {"files": {"a.mp4": {"vid": "vid"}}}}})
@@ -1006,7 +1037,7 @@ class IndexingServiceTests(unittest.TestCase):
             cleanup_missing_entries=selected_entries,
         )
 
-        self.assertEqual(output, ("v", "t", "p", "i"))
+        self.assertIsNotNone(output[0])
         self.assertEqual(mock_cleanup.call_args.kwargs["selected_entries"], selected_entries)
         mock_delete_video_data.assert_called_once()
         mock_build.assert_called_once()

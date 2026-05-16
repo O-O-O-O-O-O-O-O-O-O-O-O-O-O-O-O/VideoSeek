@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from src.app.config import get_app_version
 from src.app.i18n import get_texts
 from ui.widgets.layout import WINDOW_SIZES, apply_dialog_size
+from ui.widgets.scaffold import VSCard
 
 
 class AboutDialog(QDialog):
@@ -31,8 +32,11 @@ class AboutDialog(QDialog):
         )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        shell = VSCard(spacing=12)
+        inner = shell.content_layout
 
         title_text = about.get("title", texts["app_name"])
         subtitle_text = about.get("badge", texts["about_badge"])
@@ -71,16 +75,17 @@ class AboutDialog(QDialog):
         close_button.setFixedHeight(40)
         close_button.clicked.connect(self.accept)
 
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
-        layout.addWidget(version)
-        layout.addWidget(version_status)
-        layout.addWidget(divider)
-        layout.addWidget(body)
+        inner.addWidget(title)
+        inner.addWidget(subtitle)
+        inner.addWidget(version)
+        inner.addWidget(version_status)
+        inner.addWidget(divider)
+        inner.addWidget(body)
         button_row = QHBoxLayout()
         button_row.addStretch()
         if download_button.isVisible():
             button_row.addWidget(download_button)
         button_row.addWidget(close_button)
 
-        layout.addLayout(button_row)
+        inner.addLayout(button_row)
+        layout.addWidget(shell)

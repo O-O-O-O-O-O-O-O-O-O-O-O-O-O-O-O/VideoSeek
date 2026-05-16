@@ -127,10 +127,15 @@ class SettingsGuiMixin:
             config.get("auto_cleanup_missing_files", DEFAULT_CONFIG["auto_cleanup_missing_files"])
         )
         self.settings_page.input_auto_cleanup_missing_files.setCurrentIndex(1 if auto_cleanup_missing_files else 0)
+        close_window_action = str(config.get("close_window_action", DEFAULT_CONFIG["close_window_action"]))
+        tray_index = self.settings_page.input_close_window_action.findData("tray")
+        self.settings_page.input_close_window_action.setCurrentIndex(
+            tray_index if close_window_action == "tray" and tray_index >= 0 else 0
+        )
         self.settings_page.input_data_root.setText(get_configured_data_root(config))
         self.settings_page.input_ffmpeg_path.setText(config.get("ffmpeg_path", DEFAULT_CONFIG["ffmpeg_path"]))
         self.settings_page.input_model_dir.setText(config.get("model_dir", DEFAULT_CONFIG["model_dir"]))
-        self._update_inference_backend_hint()
+        self.push_inference_status()
         self._update_sampling_rules_feedback()
         self._update_sampling_preview()
         self._refresh_pending_cleanup_actions(config)
@@ -162,6 +167,7 @@ class SettingsGuiMixin:
             self.settings_page.input_prefer_gpu,
             self.settings_page.input_gpu_probe_unknown_keep_gpu,
             self.settings_page.input_auto_cleanup_missing_files,
+            self.settings_page.input_close_window_action,
             self.settings_page.input_active_model_profile,
             self.settings_page.input_data_root,
             self.settings_page.input_ffmpeg_path,
@@ -338,6 +344,9 @@ class SettingsGuiMixin:
             config["auto_cleanup_missing_files"] = bool(
                 self.settings_page.input_auto_cleanup_missing_files.currentData()
             )
+            config["close_window_action"] = str(
+                self.settings_page.input_close_window_action.currentData() or "exit"
+            )
             selected_profile_id = str(self.settings_page.input_active_model_profile.currentData() or "").strip()
             models = config.get("models")
             if not isinstance(models, dict):
@@ -412,7 +421,7 @@ class SettingsGuiMixin:
                 if synced_path:
                     self.settings_page.input_ffmpeg_path.setText(synced_path)
             self.check_runtime_resources(show_dialog=False)
-            self._update_inference_backend_hint()
+            self.push_inference_status()
             self._update_sampling_preview()
             if profile_switched:
                 self.refresh_library_table()
@@ -478,7 +487,7 @@ class SettingsGuiMixin:
             if synced_path:
                 self.settings_page.input_ffmpeg_path.setText(synced_path)
             self.check_runtime_resources(show_dialog=False)
-            self._update_inference_backend_hint()
+            self.push_inference_status()
             self._update_sampling_preview()
             reset_message = self.texts["reset_settings_done"]
             if isinstance(migration_result, dict) and migration_result.get("migrated"):
@@ -752,7 +761,7 @@ class SettingsGuiMixin:
         if synced:
             self.settings_page.input_model_dir.setText(synced)
         self.check_runtime_resources(show_dialog=False)
-        self._update_inference_backend_hint()
+        self.push_inference_status()
         old_path = str(result.get("old_model_dir", "") or "")
         new_path = str(result.get("new_model_dir", "") or "")
         detail = str(t.get("model_root_move_success_detail") or "").strip()

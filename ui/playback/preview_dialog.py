@@ -3,9 +3,20 @@ import time
 from types import SimpleNamespace
 
 from PySide6.QtCore import QThread, Qt, QTimer, Signal
-from PySide6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
+from PySide6.QtGui import QFontMetrics
+from PySide6.QtWidgets import (
+    QDialog,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSlider,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
-from src.utils import get_video_duration_seconds
+from src.utils import format_timecode_seconds, get_video_duration_seconds
 from ui.playback.vlc_player import VlcPreviewPlayer
 
 
@@ -98,49 +109,90 @@ class PreviewDialog(QDialog):
         self.segment_end_sec = None
         self._known_total_ms = 0
         self.export_worker = None
+        self._playback_ready = False
+        self._detail_error = None
+        self._detail_notice = None
+        self._segment_line_override = None
 
         self.setWindowTitle(self.texts.get("preview_dialog_title", "Large Preview"))
-        self.resize(1200, 760)
+        self.resize(1000, 660)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        layout.setContentsMargins(12, 10, 12, 12)
+        layout.setSpacing(8)
 
         self.video_host = QWidget()
         self.video_host.setObjectName("VideoContainer")
-        self.video_host.setMinimumHeight(620)
+        self.video_host.setMinimumHeight(480)
         layout.addWidget(self.video_host, 1)
 
-        info_row = QHBoxLayout()
-        self.status_label = QLabel("")
-        info_row.addWidget(self.status_label, 1)
-        self.time_label = QLabel("00:00 / 00:00")
-        info_row.addWidget(self.time_label)
-        layout.addLayout(info_row)
+        self.detail_label = QLabel("")
+        self.detail_label.setObjectName("Hint")
+        self.detail_label.setWordWrap(True)
+        layout.addWidget(self.detail_label)
 
-        self.segment_label = QLabel(self.texts.get("preview_dialog_segment_empty", "No segment selected"))
-        layout.addWidget(self.segment_label)
-
-        control_row = QHBoxLayout()
-        control_row.setSpacing(10)
+        transport = QHBoxLayout()
+        transport.setSpacing(8)
         self.play_button = QPushButton(self.texts.get("preview_dialog_pause", "Pause"))
         self.fullscreen_button = QPushButton(self.texts.get("preview_dialog_fullscreen", "Fullscreen"))
+        self.fullscreen_button.setObjectName("NeutralToolButton")
+        segment_fields = QWidget()
+        segment_fields.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        seg_outer = QVBoxLayout(segment_fields)
+        seg_outer.setContentsMargins(0, 0, 0, 0)
+        seg_outer.setSpacing(3)
+        self.segment_queue_hint = QLabel("")
+        self.segment_queue_hint.setObjectName("PreviewSegmentQueueHint")
+        self.segment_queue_hint.setAlignment(Qt.AlignHCenter | Qt.AlignBottom)
+        self.segment_queue_hint.setWordWrap(False)
+        self.segment_queue_hint.setVisible(False)
+        self.segment_queue_hint.setMaximumWidth(280)
+        seg_layout = QHBoxLayout()
+        seg_layout.setContentsMargins(0, 0, 0, 0)
+        seg_layout.setSpacing(6)
+        dash = QLabel("—")
+        dash.setObjectName("Hint")
+        self.label_segment_start = QLabel("—")
+        self.label_segment_start.setObjectName("DialogMetaLabel")
+        self.label_segment_start.setAlignment(Qt.AlignCenter)
+        self.label_segment_start.setMinimumWidth(92)
+        self.label_segment_end = QLabel("—")
+        self.label_segment_end.setObjectName("DialogMetaLabel")
+        self.label_segment_end.setAlignment(Qt.AlignCenter)
+        self.label_segment_end.setMinimumWidth(92)
+        seg_layout.addWidget(self.label_segment_start)
+        seg_layout.addWidget(dash, 0, Qt.AlignVCenter)
+        seg_layout.addWidget(self.label_segment_end)
+        seg_outer.addWidget(self.segment_queue_hint)
+        seg_outer.addLayout(seg_layout)
+        self.time_label = QLabel("00:00 / 00:00")
+        self.time_label.setObjectName("PreviewTimeLabel")
+        self.time_label.setAlignment(Qt.AlignCenter)
+        transport.addWidget(self.play_button, 0)
+        transport.addWidget(self.fullscreen_button, 0)
+        transport.addStretch(1)
+        transport.addWidget(segment_fields, 0, Qt.AlignVCenter)
+        transport.addStretch(1)
+        transport.addWidget(self.time_label, 0)
+        layout.addLayout(transport)
+
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(0, 1000)
-        control_row.addWidget(self.play_button)
-        control_row.addWidget(self.fullscreen_button)
-        control_row.addWidget(self.slider, 1)
-        layout.addLayout(control_row)
+        self.slider.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        layout.addWidget(self.slider)
 
         segment_row = QHBoxLayout()
-        segment_row.setSpacing(10)
+        segment_row.setSpacing(8)
         self.set_start_button = QPushButton(self.texts.get("preview_dialog_set_start", "Set Start"))
         self.set_end_button = QPushButton(self.texts.get("preview_dialog_set_end", "Set End"))
         self.clear_segment_button = QPushButton(self.texts.get("preview_dialog_clear_segment", "Clear Segment"))
+        self.clear_segment_button.setObjectName("GhostButton")
         self.export_button = QPushButton(self.texts.get("preview_dialog_export", "Export Segment"))
+        self.export_button.setObjectName("PrimaryButton")
         self.export_button.setEnabled(False)
         segment_row.addWidget(self.set_start_button)
         segment_row.addWidget(self.set_end_button)
+        segment_row.addStretch(1)
         segment_row.addWidget(self.clear_segment_button)
         segment_row.addWidget(self.export_button)
         layout.addLayout(segment_row)
@@ -169,9 +221,10 @@ class PreviewDialog(QDialog):
         now = time.monotonic()
         if now < self._min_close_at:
             self._pending_close = True
-            self.status_label.setText(
-                self.texts.get("preview_dialog_busy", "Preview is still switching. Try again in a moment.")
+            self._detail_notice = self.texts.get(
+                "preview_dialog_busy", "Preview is still switching. Try again in a moment."
             )
+            self._apply_detail_label()
             QTimer.singleShot(max(1, int((self._min_close_at - now) * 1000)), self._complete_deferred_close)
             event.ignore()
             return
@@ -187,6 +240,10 @@ class PreviewDialog(QDialog):
         self._close_after_export = False
         self._pending_close = False
         self._extend_close_guard(1.0)
+        self._playback_ready = False
+        self._detail_error = None
+        self._detail_notice = None
+        self._segment_line_override = None
         self.update_timer.stop()
         self._ensure_player()
         self.player.stop()
@@ -250,6 +307,7 @@ class PreviewDialog(QDialog):
         self.set_end_button.setEnabled(False)
         self.clear_segment_button.setEnabled(False)
         self.fullscreen_button.setEnabled(False)
+        self.export_button.setEnabled(False)
 
     def _finalize_close(self):
         self._pending_close = False
@@ -259,6 +317,7 @@ class PreviewDialog(QDialog):
         if self.isFullScreen():
             self.showNormal()
         self.fullscreen_button.setText(self.texts.get("preview_dialog_fullscreen", "Fullscreen"))
+        self._detail_notice = None
         self.hide()
 
     def _ensure_player(self):
@@ -286,7 +345,8 @@ class PreviewDialog(QDialog):
         self.update_timer.stop()
         player = self._ensure_player()
         if not player.play(self.video_path, self.start_sec, stop_sec=self.end_sec):
-            self.status_label.setText(self.texts.get("preview_failed", "Preview failed"))
+            self._detail_error = self.texts.get("preview_failed", "Preview failed")
+            self._apply_detail_label()
             self.play_button.setEnabled(False)
             self.slider.setEnabled(False)
             self.set_start_button.setEnabled(False)
@@ -295,8 +355,9 @@ class PreviewDialog(QDialog):
             self.export_button.setEnabled(False)
             return
 
+        self._playback_ready = True
+        self._detail_error = None
         self.update_timer.start()
-        self._update_status_label()
         self._update_segment_ui()
         self._sync_ui()
 
@@ -319,7 +380,7 @@ class PreviewDialog(QDialog):
             return
         player = self._ensure_player()
         player.unlock_full_playback()
-        self._update_status_label()
+        self._apply_detail_label()
         player.resume()
         self.play_button.setText(self.texts.get("preview_dialog_pause", "Pause"))
 
@@ -331,7 +392,7 @@ class PreviewDialog(QDialog):
         player = self._ensure_player()
         if player.has_locked_window():
             player.unlock_full_playback()
-            self._update_status_label()
+            self._apply_detail_label()
 
     def _on_slider_released(self):
         if self._closing:
@@ -405,43 +466,78 @@ class PreviewDialog(QDialog):
         self.showFullScreen()
         self.fullscreen_button.setText(self.texts.get("preview_dialog_exit_fullscreen", "Exit Fullscreen"))
 
-    def _update_status_label(self):
-        if self._closing:
-            return
+    def _lock_status_line(self):
+        if not self._playback_ready or self._closing:
+            return ""
         player = self.player
-        if player is not None and player.has_locked_window():
-            self.status_label.setText(
-                self.texts.get(
-                    "preview_dialog_locked",
-                    "Matched segment preview is locked and will pause automatically at the end point.",
-                )
+        if player is None:
+            return ""
+        if player.has_locked_window():
+            return self.texts.get(
+                "preview_dialog_locked",
+                "Matched segment preview is locked and will pause automatically at the end point.",
             )
-            return
-        self.status_label.setText(
-            self.texts.get(
-                "preview_dialog_unlocked",
-                "Full video unlocked. You can scrub and continue playback freely.",
-            )
+        return self.texts.get(
+            "preview_dialog_unlocked",
+            "Full video unlocked. You can scrub and continue playback freely.",
         )
+
+    def _apply_detail_label(self):
+        if self._detail_notice:
+            self.detail_label.setText(self._detail_notice)
+            self.detail_label.setVisible(True)
+            return
+        if self._detail_error:
+            self.detail_label.setText(self._detail_error)
+            self.detail_label.setVisible(True)
+            return
+        lock = self._lock_status_line()
+        self.detail_label.setText(lock)
+        self.detail_label.setVisible(bool(lock))
+
+    def _refresh_segment_queue_hint(self):
+        text = (self._segment_line_override or "").strip()
+        if not text:
+            self.segment_queue_hint.clear()
+            self.segment_queue_hint.setToolTip("")
+            self.segment_queue_hint.setVisible(False)
+            return
+        hint = self.segment_queue_hint
+        max_w = hint.maximumWidth()
+        fm = QFontMetrics(hint.font())
+        elided = fm.elidedText(text, Qt.TextElideMode.ElideRight, max_w)
+        hint.setText(elided)
+        hint.setToolTip(text if elided != text else "")
+        hint.setVisible(True)
+
+    def _refresh_segment_bounds_labels(self):
+        self.label_segment_start.setText(_format_segment_display_sec(self.segment_start_sec))
+        self.label_segment_end.setText(_format_segment_display_sec(self.segment_end_sec))
 
     def _mark_start(self):
         if self._closing:
             return
-        self.segment_start_sec = self._current_time_seconds()
+        self._segment_line_override = None
+        t = self._current_time_seconds()
+        if self.segment_end_sec is not None and t > float(self.segment_end_sec):
+            self.segment_end_sec = None
+        self.segment_start_sec = t
         self._update_segment_ui()
 
     def _mark_end(self):
         if self._closing:
             return
-        self.segment_end_sec = self._current_time_seconds()
-        if self.segment_start_sec is not None and self.segment_end_sec is not None:
-            if self.segment_end_sec < self.segment_start_sec:
-                self.segment_start_sec, self.segment_end_sec = self.segment_end_sec, self.segment_start_sec
+        self._segment_line_override = None
+        t = self._current_time_seconds()
+        if self.segment_start_sec is not None and t < float(self.segment_start_sec):
+            self.segment_start_sec = None
+        self.segment_end_sec = t
         self._update_segment_ui()
 
     def _clear_segment(self):
         if self._closing:
             return
+        self._segment_line_override = None
         self.segment_start_sec = None
         self.segment_end_sec = None
         self._update_segment_ui()
@@ -470,7 +566,9 @@ class PreviewDialog(QDialog):
             "preview_dialog_export_queued",
             "Export added to queue.",
         )
-        self.segment_label.setText(queued_text)
+        self._segment_line_override = queued_text
+        self._refresh_segment_queue_hint()
+        self._apply_detail_label()
         self.export_status_changed.emit("queued", queued_text)
         self.export_requested.emit(
             self.video_path,
@@ -481,36 +579,15 @@ class PreviewDialog(QDialog):
         self._set_export_busy(False)
 
     def _update_segment_ui(self):
+        if self.segment_start_sec is not None and self.segment_end_sec is not None:
+            if float(self.segment_end_sec) < float(self.segment_start_sec):
+                self.segment_start_sec, self.segment_end_sec = self.segment_end_sec, self.segment_start_sec
         segment = self._normalized_segment()
-        if self.segment_start_sec is None and self.segment_end_sec is None:
-            self.segment_label.setText(self.texts.get("preview_dialog_segment_empty", "No segment selected"))
-            self.export_button.setEnabled(False)
-            return
-
-        if self.segment_start_sec is not None and self.segment_end_sec is None:
-            self.segment_label.setText(
-                self.texts.get("preview_dialog_segment_start_only", "Start: {start}").format(
-                    start=_format_seconds(self.segment_start_sec)
-                )
-            )
-            self.export_button.setEnabled(False)
-            return
-
-        if segment is None:
-            self.segment_label.setText(self.texts.get("preview_dialog_segment_empty", "No segment selected"))
-            self.export_button.setEnabled(False)
-            return
-
-        start_sec, end_sec = segment
-        duration = end_sec - start_sec
-        self.segment_label.setText(
-            self.texts.get("preview_dialog_segment_range", "Segment: {start} -> {end} ({duration})").format(
-                start=_format_seconds(start_sec),
-                end=_format_seconds(end_sec),
-                duration=_format_seconds(duration),
-            )
-        )
-        self.export_button.setEnabled(duration > 0.1)
+        self.export_button.setEnabled(segment is not None)
+        self.export_button.setToolTip("")
+        self._refresh_segment_bounds_labels()
+        self._apply_detail_label()
+        self._refresh_segment_queue_hint()
 
     def _normalized_segment(self):
         if self.segment_start_sec is None or self.segment_end_sec is None:
@@ -532,7 +609,9 @@ class PreviewDialog(QDialog):
     def _handle_export_finished(self, result, save_path):
         state, status_text = self._resolve_export_status(result, save_path)
         if not self._closing:
-            self.segment_label.setText(status_text)
+            self._segment_line_override = status_text
+            self._refresh_segment_queue_hint()
+            self._apply_detail_label()
         self.export_status_changed.emit(state, status_text)
 
     def _handle_export_thread_finished(self):
@@ -572,12 +651,14 @@ class PreviewDialog(QDialog):
         self.slider.setEnabled(not busy)
 
 
+def _format_segment_display_sec(value):
+    if value is None:
+        return "—"
+    return format_timecode_seconds(value)
+
+
 def _format_ms(ms):
     total_seconds = max(0, int(ms / 1000))
     minutes = total_seconds // 60
     seconds = total_seconds % 60
     return f"{minutes:02d}:{seconds:02d}"
-
-
-def _format_seconds(value):
-    return f"{float(value):.1f}s"

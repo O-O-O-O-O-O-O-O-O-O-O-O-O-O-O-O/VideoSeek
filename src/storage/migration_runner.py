@@ -15,6 +15,7 @@ from src.storage.config_store import (
     get_model_profile_storage_paths,
     get_remote_model_asset_paths,
 )
+from src.storage.video_id_migration import VIDEO_ID_FORMAT_VERSION, migrate_legacy_video_ids
 
 logger = get_logger("migration_runner")
 TARGET_SCHEMA_VERSION = 2
@@ -551,7 +552,22 @@ def run_startup_migration(progress_callback=None):
         except Exception:
             logger.warning("Failed to backfill default CLIP model manifest on already-migrated config", exc_info=True)
         logger.info("Startup migration skipped: already at schema_version=%s", TARGET_SCHEMA_VERSION)
-        return {"migrated": False, "schema_version": TARGET_SCHEMA_VERSION, "backup_dir": ""}
+        latest_config = load_config()
+        _emit(progress_callback, 8, "正在检查视频索引 ID")
+        video_id_result = migrate_legacy_video_ids(config=latest_config, progress_callback=progress_callback)
+        return {
+            "migrated": bool(video_id_result.get("migrated")),
+            "schema_version": TARGET_SCHEMA_VERSION,
+            "backup_dir": "",
+            "migrated_local_payloads": 0,
+            "migrated_local_asset_files": 0,
+            "migrated_global_payloads": 0,
+            "migrated_remote_payloads": 0,
+            "migrated_video_ids": int(video_id_result.get("migrated_video_ids", 0) or 0),
+            "failed_video_ids": int(video_id_result.get("failed_video_ids", 0) or 0),
+            "video_id_format": int(video_id_result.get("video_id_format", VIDEO_ID_FORMAT_VERSION)),
+            "pending_legacy": bool(video_id_result.get("pending_legacy")),
+        }
 
     _emit(progress_callback, 12, "正在备份现有数据")
     backup_dir = _create_backup(config)
@@ -602,6 +618,9 @@ def run_startup_migration(progress_callback=None):
     _write_migration_state(latest_config, backup_dir)
     _prune_backup_dirs(latest_config, keep_count=1)
 
+    _emit(progress_callback, 96, "正在迁移视频索引 ID")
+    video_id_result = migrate_legacy_video_ids(config=latest_config, progress_callback=progress_callback)
+
     _emit(progress_callback, 100, "数据结构迁移完成")
     logger.info(
         "Startup migration finished: schema_version=%s migrated_local=%s migrated_global=%s migrated_remote=%s",
@@ -614,6 +633,8 @@ def run_startup_migration(progress_callback=None):
         "migrated": True,
         "schema_version": TARGET_SCHEMA_VERSION,
         "backup_dir": backup_dir,
+        "migrated_video_ids": int(video_id_result.get("migrated_video_ids", 0) or 0),
+        "failed_video_ids": int(video_id_result.get("failed_video_ids", 0) or 0),
         "migrated_local_payloads": int(local_count),
         "migrated_meta_file": int(migrated_meta_file),
         "migrated_local_asset_files": int(local_asset_files),
@@ -623,4 +644,5 @@ def run_startup_migration(progress_callback=None):
         "migrated_global_payloads": int(global_count),
         "migrated_remote_payloads": int(remote_count),
         "cleaned_legacy_dirs": int(cleaned_legacy_dirs),
+        "pending_legacy": bool(video_id_result.get("pending_legacy")),
     }

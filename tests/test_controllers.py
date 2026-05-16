@@ -301,7 +301,10 @@ def _make_parent_window():
     parent.search_page = MagicMock()
     parent.search_page.btn_search = MagicMock()
     parent.search_page.lbl_status = MagicMock()
+    parent.search_page.result_view = MagicMock()
     parent.result_table = MagicMock()
+    parent.push_inference_status = MagicMock()
+    parent.push_resources_status = MagicMock()
     return parent
 
 
@@ -475,7 +478,7 @@ class SearchControllerTests(unittest.TestCase):
         controller.clear_results()
 
         controller.stop_thumbnail_loading.assert_called_once()
-        parent.result_table.setRowCount.assert_called_once_with(0)
+        parent.search_page.result_view.clear.assert_called_once()
 
     def test_display_results_handles_empty_result(self):
         parent = _make_parent_window()
@@ -483,7 +486,7 @@ class SearchControllerTests(unittest.TestCase):
 
         controller._display_results([])
 
-        parent.result_table.setRowCount.assert_called_once_with(0)
+        parent.search_page.result_view.clear.assert_called_once()
         parent.search_page.lbl_status.setText.assert_called_with("No results")
 
     @patch("ui.controllers.search_controller.SearchWarmupWorker")
@@ -507,7 +510,7 @@ class SearchControllerTests(unittest.TestCase):
         controller._finish_warmup()
 
         self.assertIsNone(controller.warmup_worker)
-        parent._update_inference_backend_hint.assert_called_once()
+        parent.push_inference_status.assert_called_once()
 
 
 class PreviewControllerTests(unittest.TestCase):

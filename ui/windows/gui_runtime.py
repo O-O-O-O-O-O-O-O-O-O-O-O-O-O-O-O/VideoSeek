@@ -13,6 +13,7 @@ from src.app.config import get_configured_data_root, load_config
 from src.core.clip_embedding import get_engine_runtime_status
 from src.utils import get_configured_model_dir, get_ffmpeg_status_text, open_folder_in_explorer
 from ui.dialogs import AppMessageDialog
+from ui.widgets.styles import set_runtime_banner_warn
 
 
 class RuntimeGuiMixin:
@@ -25,9 +26,12 @@ class RuntimeGuiMixin:
         for target_dir in target_dirs:
             open_folder_in_explorer(target_dir)
 
-    def _update_inference_backend_hint(self):
+    def _update_inference_backend_hint(self, status=None):
         config = load_config()
-        status = get_engine_runtime_status()
+        if status is None:
+            status = get_engine_runtime_status()
+        else:
+            status = dict(status)
         backend_text = ""
         show_help_link = False
 
@@ -212,6 +216,10 @@ class RuntimeGuiMixin:
         self.startup_cancelled = True
         self.close()
 
+    def _start_runtime_warmup(self):
+        self.search_controller.start_warmup()
+        self.preview_controller.start_warmup()
+
     def check_runtime_resources(self, show_dialog=True):
         return self.runtime_resource_controller.check_resources(show_dialog=show_dialog)
 
@@ -238,17 +246,20 @@ class RuntimeGuiMixin:
         self.settings_page.input_model_dir.setText(result.get("model_dir", get_configured_model_dir()))
         if result.get("ffmpeg_path"):
             self.settings_page.input_ffmpeg_path.setText(result["ffmpeg_path"])
-        self._update_inference_backend_hint()
+        self.push_inference_status()
 
     def _apply_runtime_resource_status(self, status):
-        self.models_ready = status["model_ready"]
-        self.search_page.btn_search.setEnabled(self.models_ready)
+        model_ready = bool(status.get("model_ready", self.ui_state.model_ready))
+        resources_ready = bool(status.get("resources_ready", self.ui_state.resources_ready))
+        self.search_page.btn_search.setEnabled(model_ready)
         self.network_search_controller.refresh_status()
-        self.library_page.btn_sync_db.setEnabled(status["resources_ready"])
-        if status["resources_ready"]:
-            self.search_controller.start_warmup()
-            self.preview_controller.start_warmup()
-        if not status["resources_ready"]:
+        self.library_page.btn_sync_db.setEnabled(resources_ready)
+        if resources_ready:
+            if getattr(self, "_startup_complete", False):
+                self._start_runtime_warmup()
+            else:
+                self._defer_runtime_warmup = True
+        if not resources_ready:
             status_text = self.texts["model_features_disabled"]
             self.search_page.lbl_status.setText(status_text)
             self.link_page.lbl_build_status.setText(status_text)
@@ -269,13 +280,15 @@ class RuntimeGuiMixin:
             missing_text = self.texts.get("models_missing_generic_unknown", "Runtime resources are incomplete.")
         banner_text = self.texts.get("runtime_banner_missing", "Runtime resources are not ready: {missing}").format(missing=missing_text)
         action_text = self.texts.get("runtime_banner_open_import", "Go Import")
-        for page in (self.search_page, self.link_page, self.library_page, self.settings_page):
+        for page in (self.search_page, self.link_page, self.library_page, self.settings_page, self.remix_page):
             banner = page.header.runtime_banner
             banner_label = page.header.runtime_banner_text
             banner_btn = page.header.runtime_banner_action
             banner_btn.setText(action_text)
             if status.get("resources_ready"):
+                set_runtime_banner_warn(banner, False)
                 banner.hide()
             else:
                 banner_label.setText(banner_text)
+                set_runtime_banner_warn(banner, True)
                 banner.show()

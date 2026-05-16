@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 
 from src.app.i18n import get_texts
 from ui.widgets.layout import WINDOW_SIZES, apply_dialog_size
+from ui.widgets.scaffold import VSCard
 
 
 class NoticeDialog(QDialog):
@@ -26,8 +27,11 @@ class NoticeDialog(QDialog):
         )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        shell = VSCard(spacing=12)
+        form = shell.content_layout
 
         title = QLabel(notice.get("title", texts["notice_heading"]))
         title.setObjectName("DialogHeroTitle")
@@ -52,7 +56,8 @@ class NoticeDialog(QDialog):
         close_button.clicked.connect(self.accept)
         button_row.addWidget(close_button)
 
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
-        layout.addWidget(content)
-        layout.addLayout(button_row)
+        form.addWidget(title)
+        form.addWidget(subtitle)
+        form.addWidget(content)
+        form.addLayout(button_row)
+        layout.addWidget(shell)

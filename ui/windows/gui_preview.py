@@ -8,7 +8,7 @@ import time
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QFileDialog
 
-from src.utils import open_folder_in_explorer, open_in_explorer
+from src.utils import format_timecode_seconds, open_folder_in_explorer, open_in_explorer
 from ui.dialogs import ResourceTableDialog
 from ui.playback.preview_dialog import ExportCancelledError, ExportClipWorker, PreviewDialog
 
@@ -80,10 +80,11 @@ class PreviewGuiMixin:
             self.search_page.btn_expand_preview,
             "PrimaryButton" if has_preview else "GhostButton",
         )
-        self._set_button_object_name(
-            self.search_page.btn_export_tasks,
-            "PrimaryButton" if has_export_tasks else "GhostButton",
-        )
+        for btn in (self.search_page.btn_export_tasks, self.remix_page.btn_export_tasks):
+            self._set_button_object_name(
+                btn,
+                "PrimaryButton" if has_export_tasks else "GhostButton",
+            )
 
     @staticmethod
     def _set_button_object_name(button, object_name):
@@ -224,7 +225,7 @@ class PreviewGuiMixin:
             return
         headers = self.texts.get(
             "preview_export_tasks_headers",
-            ["#", "Status", "Source Video", "Start(s)", "End(s)", "Output File"],
+            ["#", "Status", "Source Video", "Start", "End", "Output File"],
         )
         rows = []
         for index, task in enumerate(self._preview_export_tasks, start=1):
@@ -233,8 +234,8 @@ class PreviewGuiMixin:
                     index,
                     self._format_preview_export_status(task.get("status")),
                     os.path.basename(task.get("video_path", "")) or task.get("video_path", ""),
-                    f"{float(task.get('start_sec', 0.0)):.2f}",
-                    f"{float(task.get('end_sec', 0.0)):.2f}",
+                    format_timecode_seconds(task.get("start_sec", 0.0)),
+                    format_timecode_seconds(task.get("end_sec", 0.0)),
                     task.get("save_path", ""),
                 ]
             )

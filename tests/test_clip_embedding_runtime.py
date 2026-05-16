@@ -24,9 +24,16 @@ class _ExecutionMode:
     ORT_SEQUENTIAL = "sequential"
 
 
+class _GraphOptimizationLevel:
+    ORT_DISABLE_ALL = 0
+    ORT_ENABLE_EXTENDED = 1
+    ORT_ENABLE_ALL = 2
+
+
 onnxruntime_stub = types.SimpleNamespace(
     SessionOptions=_SessionOptions,
     ExecutionMode=_ExecutionMode,
+    GraphOptimizationLevel=_GraphOptimizationLevel,
     get_available_providers=lambda: ["CPUExecutionProvider"],
 )
 sys.modules.setdefault("onnxruntime", onnxruntime_stub)
@@ -144,6 +151,15 @@ class ClipEmbeddingRuntimeTests(unittest.TestCase):
 
         self.assertFalse(options.enable_mem_pattern)
         self.assertEqual(options.execution_mode, clip_embedding.ort.ExecutionMode.ORT_SEQUENTIAL)
+        self.assertEqual(options.graph_optimization_level, clip_embedding.ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED)
+        self.assertEqual(options.inter_op_num_threads, 1)
+        self.assertGreaterEqual(options.intra_op_num_threads, 1)
+        self.assertLessEqual(options.intra_op_num_threads, 4)
+
+    @patch.dict(os.environ, {"VIDEOSEEK_ORT_INTRA_OP_THREADS": "1"}, clear=False)
+    def test_build_session_options_intra_threads_env_override(self):
+        options = clip_embedding._build_session_options(prefer_gpu=True)
+        self.assertEqual(options.intra_op_num_threads, 1)
 
     def test_detect_gpu_runtime_issue_reports_missing_directml_provider(self):
         with (
@@ -377,6 +393,66 @@ class ClipEmbeddingRuntimeTests(unittest.TestCase):
 
         self.assertTrue(status["initialized"])
         self.assertEqual(status["backend"], "CPU")
+
+    @patch(
+        "src.core.clip_embedding.chunk_config_payload",
+        return_value={
+            "similarity_threshold": 0.85,
+            "max_chunk_duration": 5.0,
+            "min_chunk_size": 2,
+            "similarity_mode": "chunk",
+        },
+    )
+    @patch("src.core.clip_embedding.get_active_embedding_spec", return_value={})
+    @patch("src.core.clip_embedding.load_config", return_value=_clip_schema_v2_config(prefer_gpu=False))
+    @patch("src.core.clip_embedding._estimate_index_frame_total", return_value=5)
+    @patch("src.core.clip_embedding.free_memory")
+    @patch("src.core.clip_embedding.create_clip_index")
+    @patch("src.core.clip_embedding.ensure_folder_exists")
+    @patch("src.core.clip_embedding.save_vector_payload")
+    @patch("src.core.clip_embedding.stream_frames_with_ffmpeg")
+    @patch("src.core.clip_embedding.get_engine")
+    def test_generate_vectors_reader_thread_batches_match_stream(
+        self,
+        mock_get_engine,
+        mock_stream,
+        mock_save,
+        mock_ensure,
+        mock_create,
+        mock_free,
+        mock_estimate,
+        mock_load_cfg,
+        mock_spec,
+        mock_chunk_cfg,
+    ):
+        batch_lengths = []
+
+        def fake_stream(_path, **_kwargs):
+            for i in range(5):
+                yield (np.zeros((224, 224, 3), dtype=np.uint8), float(i))
+
+        mock_stream.side_effect = fake_stream
+
+        class DummyEngine:
+            embedding_batch_size = 2
+
+            def encode_images(self, batch):
+                batch_lengths.append(len(batch))
+                return np.zeros((len(batch), 4), dtype=np.float32)
+
+        mock_get_engine.return_value = DummyEngine()
+        mock_create.return_value = object()
+        clip_embedding.reset_engine()
+        try:
+            vectors, ts, _index = clip_embedding.generate_vectors_and_index_for_video(
+                "D:/v.mp4", "vid1", "D:/idx", "D:/vec"
+            )
+        finally:
+            clip_embedding.reset_engine()
+
+        self.assertEqual(batch_lengths, [2, 2, 1])
+        self.assertEqual(len(vectors), 5)
+        self.assertEqual(len(ts), 5)
 
 
 if __name__ == "__main__":

@@ -45,19 +45,51 @@ def atomic_save_numpy(output_file, data):
     _atomic_save_npy(output_file, data)
 
 
+def _normalize_vectors(vectors):
+    vectors = np.asarray(vectors, dtype="float32")
+    if vectors.ndim == 1:
+        vectors = vectors.reshape(1, -1)
+    if vectors.size == 0:
+        return vectors
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    return vectors / np.maximum(norms, 1e-10)
+
+
+class IncrementalClipIndex:
+    """Build a FAISS index one video/batch at a time to limit peak memory."""
+
+    def __init__(self):
+        self._index = None
+        self._total = 0
+
+    @property
+    def total(self):
+        return self._total
+
+    def add(self, vectors_list):
+        vectors = _normalize_vectors(vectors_list)
+        if vectors.size == 0:
+            return 0
+        if self._index is None:
+            self._index = faiss.IndexFlatIP(int(vectors.shape[1]))
+        self._index.add(vectors)
+        added = int(vectors.shape[0])
+        self._total += added
+        return added
+
+    def save(self, index_file):
+        if self._index is None or self._total <= 0:
+            raise ValueError("Cannot save an empty incremental index")
+        _atomic_write_faiss_index(self._index, index_file)
+        logger.info("Index saved to %s (%s vectors)", index_file, self._total)
+        return self._index
+
+
 @measure_time("Index build time:")
 def create_clip_index(vectors_list, index_file):
-    vectors = np.asarray(vectors_list, dtype="float32")
-    vectors = np.asarray([
-        vector / np.linalg.norm(vector) if np.linalg.norm(vector) != 0 else vector
-        for vector in vectors
-    ], dtype="float32")
-
-    index = faiss.IndexFlatIP(vectors.shape[1])
-    index.add(vectors)
-    _atomic_write_faiss_index(index, index_file)
-    logger.info("Index saved to %s", index_file)
-    return index
+    builder = IncrementalClipIndex()
+    builder.add(vectors_list)
+    return builder.save(index_file)
 
 
 def load_clip_index(index_file):

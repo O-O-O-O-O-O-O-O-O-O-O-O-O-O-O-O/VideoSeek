@@ -8,7 +8,6 @@ from src.services.remote_library_service import (
     import_remote_library_zip,
 )
 from ui.presenters.network_build_presenter import format_build_finished_status, format_build_progress_text
-from ui.views.table_views import populate_network_result_table
 from ui.threading_utils import shutdown_thread
 from ui.workers import RemoteLibraryBuildWorker, RemoteSearchWorker
 
@@ -21,13 +20,18 @@ class NetworkSearchController(QObject):
         self.build_worker = None
         self.start_time = 0.0
 
+    def _result_view(self):
+        return self.parent_window.link_page.result_view
+
     def start_search(self, query_data, is_text):
         if self.search_worker and self.search_worker.isRunning():
             return
         self.start_time = time.time()
         self.parent_window.link_page.btn_run.setEnabled(False)
         self.parent_window.link_page.lbl_search_status.setText(self.parent_window.texts["searching"])
-        self.parent_window.link_page.result_table.setRowCount(0)
+        result_view = self._result_view()
+        result_view.set_busy(True)
+        result_view.clear()
 
         self.search_worker = RemoteSearchWorker(query_data, is_text)
         self.search_worker.result_ready.connect(self._display_results)
@@ -70,7 +74,7 @@ class NetworkSearchController(QObject):
         self.parent_window.link_page.query_image_label.setText(
             self.parent_window.texts["network_image_preview_hint"]
         )
-        self.parent_window.link_page.result_table.setRowCount(0)
+        self._result_view().clear()
         self.parent_window.link_page.progress_bar.setRange(0, 100)
         self.parent_window.link_page.progress_bar.setValue(0)
         self.parent_window.link_page.progress_bar.setVisible(False)
@@ -79,7 +83,9 @@ class NetworkSearchController(QObject):
 
     def refresh_status(self):
         status = get_remote_library_status()
-        self.parent_window.link_page.btn_run.setEnabled(status["ready"] and self.parent_window.models_ready)
+        self.parent_window.link_page.btn_run.setEnabled(
+            status["ready"] and self.parent_window.ui_state.model_ready
+        )
         if not status["ready"]:
             self.parent_window.link_page.lbl_search_status.setText(
                 self.parent_window.texts["network_index_missing"]
@@ -90,19 +96,24 @@ class NetworkSearchController(QObject):
         shutdown_thread(self.build_worker)
 
     def _display_results(self, results):
+        result_view = self._result_view()
+        result_view.set_busy(False)
         if not results:
+            result_view.clear()
             self.parent_window.link_page.lbl_search_status.setText(self.parent_window.texts["no_results"])
             return
-        populate_network_result_table(self.parent_window.link_page.result_table, results, self.parent_window.texts)
+        result_view.populate_network(results, self.parent_window.texts)
         elapsed = time.time() - self.start_time
         self.parent_window.link_page.lbl_search_status.setText(
             self.parent_window.texts["search_done"].format(duration=elapsed, count=len(results))
         )
 
     def _finish_search(self):
-        self.parent_window.link_page.btn_run.setEnabled(True)
+        self._result_view().set_busy(False)
+        self.refresh_status()
 
     def _handle_search_error(self, error_text):
+        self._result_view().set_busy(False)
         self.parent_window.link_page.lbl_search_status.setText(self.parent_window.texts["search_failed"])
         self.parent_window.show_error_dialog(self.parent_window.texts["search_failed"], error_text)
 
@@ -115,7 +126,9 @@ class NetworkSearchController(QObject):
 
     def _on_build_finished(self, status):
         self.parent_window.link_page.btn_build.setEnabled(True)
-        self.parent_window.link_page.btn_run.setEnabled(bool(status.get("ready", False)) and self.parent_window.models_ready)
+        self.parent_window.link_page.btn_run.setEnabled(
+            bool(status.get("ready", False)) and self.parent_window.ui_state.model_ready
+        )
         self.parent_window.link_page.progress_bar.setValue(0)
         self.parent_window.link_page.progress_bar.setVisible(False)
         self.parent_window.link_page.lbl_build_status.setText(

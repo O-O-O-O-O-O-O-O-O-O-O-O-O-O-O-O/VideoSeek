@@ -20,12 +20,24 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from ui.widgets.layout import COMPONENT_SIZES
 from ui.widgets.remix_scope_tree import RemixScopeTreeWidget
+from ui.widgets.preview_panel import PreviewPanel
+from ui.widgets.result_table import LinkResultTable, RemixResultTable, ResultTable
+from ui.widgets.result_view import ResultView
+from ui.widgets.scaffold import (
+    PageHeader,
+    PageScaffold,
+    VSCard,
+    VSProgressStatusRow,
+    make_runtime_banner,
+)
+from ui.widgets.search_panel import SearchPanel
 from ui.widgets.styles import repolish_widget
 
 # Remix match parameter presets (see remix_preset_guide_* in i18n).
@@ -149,7 +161,7 @@ class ClickableLabel(QLabel):
 
 
 class RemixDisclosureHeader(QWidget):
-    """Single-row disclosure header: chevron + title, entire row toggles expand/collapse."""
+    """Single-row disclosure header: title + fold arrow (Qt style), entire row toggles expand/collapse."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -163,19 +175,20 @@ class RemixDisclosureHeader(QWidget):
         lay.setContentsMargins(2, 4, 2, 4)
         lay.setSpacing(10)
 
-        self._chevron = QLabel()
-        self._chevron.setObjectName("RemixDisclosureChevron")
-        self._chevron.setFixedWidth(22)
-        self._chevron.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._chevron.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-
         self.title_label = QLabel()
         self.title_label.setObjectName("CardTitle")
         self.title_label.setWordWrap(False)
         self.title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
-        lay.addWidget(self._chevron, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._fold_btn = QToolButton()
+        self._fold_btn.setObjectName("RemixDisclosureChevronBtn")
+        self._fold_btn.setAutoRaise(True)
+        self._fold_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._fold_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._fold_btn.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
         lay.addWidget(self.title_label, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        lay.addWidget(self._fold_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.set_expanded(False)
 
@@ -184,8 +197,8 @@ class RemixDisclosureHeader(QWidget):
 
     def set_expanded(self, expanded: bool):
         self._expanded = bool(expanded)
-        # Collapsed: ▶ (closed); expanded: ▼ (content below), same idiom as tree / Finder.
-        self._chevron.setText("\u25bc" if self._expanded else "\u25b6")
+        # Same idiom as library scope cards: right arrow = collapsed, down = expanded.
+        self._fold_btn.setArrowType(Qt.ArrowType.DownArrow if self._expanded else Qt.ArrowType.RightArrow)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
@@ -350,13 +363,13 @@ class NavigationSidebar(QWidget):
         layout.addStretch()
 
         self.btn_notice = QPushButton("Notes")
-        self.btn_notice.setObjectName("SecondaryButton")
+        self.btn_notice.setObjectName("SidebarFooterButton")
         self.btn_about = QPushButton("About")
-        self.btn_about.setObjectName("SecondaryButton")
+        self.btn_about.setObjectName("SidebarFooterButton")
         self.btn_language = QPushButton("EN")
-        self.btn_language.setObjectName("GhostButton")
+        self.btn_language.setObjectName("SidebarFooterGhost")
         self.btn_theme = QPushButton("Dark")
-        self.btn_theme.setObjectName("PrimaryButton")
+        self.btn_theme.setObjectName("SidebarFooterButton")
 
         for button in [self.btn_notice, self.btn_about, self.btn_language, self.btn_theme]:
             button.setCursor(Qt.PointingHandCursor)
@@ -384,63 +397,24 @@ class NavigationSidebar(QWidget):
             button.setChecked(name == page_name)
 
 
-class PageHeader(QFrame):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("PageHeader")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(4)
-        self.title = QLabel()
-        self.title.setObjectName("PageTitle")
-        self.subtitle = QLabel()
-        self.subtitle.setObjectName("PageSubtitle")
-        self.subtitle.setWordWrap(True)
-        self.runtime_banner = QFrame()
-        self.runtime_banner.setObjectName("RuntimeBanner")
-        banner_layout = QHBoxLayout(self.runtime_banner)
-        banner_layout.setContentsMargins(10, 8, 10, 8)
-        banner_layout.setSpacing(8)
-        self.runtime_banner_text = QLabel()
-        self.runtime_banner_text.setObjectName("RuntimeBannerText")
-        self.runtime_banner_text.setWordWrap(True)
-        self.runtime_banner_action = QPushButton()
-        self.runtime_banner_action.setObjectName("AccentGhostButton")
-        self.runtime_banner_action.setMinimumHeight(30)
-        banner_layout.addWidget(self.runtime_banner_text, 1)
-        banner_layout.addWidget(self.runtime_banner_action, 0)
-        self.runtime_banner.hide()
-        layout.addWidget(self.title)
-        layout.addWidget(self.subtitle)
-        layout.addWidget(self.runtime_banner)
-
-
 class SearchPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(12)
+        root.setSpacing(0)
 
-        self.header = PageHeader()
-        root.addWidget(self.header)
+        self.scaffold = PageScaffold()
+        root.addWidget(self.scaffold)
+        self.header = self.scaffold.header
+        page_body = self.scaffold.content_layout
 
-        self.indexing_notice = QFrame()
-        self.indexing_notice.setObjectName("RuntimeBanner")
-        indexing_notice_layout = QHBoxLayout(self.indexing_notice)
-        indexing_notice_layout.setContentsMargins(12, 8, 12, 8)
-        indexing_notice_layout.setSpacing(8)
-        self.indexing_notice_text = QLabel()
-        self.indexing_notice_text.setObjectName("RuntimeBannerText")
-        self.indexing_notice_text.setWordWrap(True)
-        indexing_notice_layout.addWidget(self.indexing_notice_text, 1)
+        self.indexing_notice, self.indexing_notice_text = make_runtime_banner()
         self.indexing_notice.hide()
-        root.addWidget(self.indexing_notice)
+        page_body.addWidget(self.indexing_notice)
 
-        self.session_card = QFrame()
-        self.session_card.setObjectName("PanelCard")
-        session_layout = QHBoxLayout(self.session_card)
-        session_layout.setContentsMargins(18, 12, 18, 12)
+        self.session_card = VSCard(margins=(18, 12, 18, 12), spacing=12)
+        session_layout = QHBoxLayout()
         session_layout.setSpacing(12)
         self.session_title = QLabel()
         self.session_title.setObjectName("CardTitle")
@@ -453,106 +427,39 @@ class SearchPage(QWidget):
         session_layout.addWidget(self.session_title, 0)
         session_layout.addWidget(self.session_hint, 1)
         session_layout.addWidget(self.lbl_status, 1)
-        root.addWidget(self.session_card)
+        self.session_card.content_layout.addLayout(session_layout)
+        page_body.addWidget(self.session_card)
 
         compare_row = QHBoxLayout()
         compare_row.setSpacing(12)
 
-        self.query_card = QFrame()
-        self.query_card.setObjectName("PanelCard")
-        query_layout = QVBoxLayout(self.query_card)
-        query_layout.setContentsMargins(18, 18, 18, 18)
-        query_layout.setSpacing(10)
+        self.search_panel = SearchPanel()
+        self.query_card = self.search_panel
+        self.controls_title = self.search_panel.controls_title
+        self.controls_hint = self.search_panel.controls_hint
+        self.img_label = self.search_panel.img_label
+        self.text_search = self.search_panel.text_search
+        self.search_mode = self.search_panel.search_mode
+        self.search_mode_label = self.search_panel.search_mode_label
+        self.mobile_toggle_label = self.search_panel.mobile_toggle_label
+        self.btn_mobile_toggle = self.search_panel.btn_mobile_toggle
+        self.btn_mobile_qr = self.search_panel.btn_mobile_qr
+        self.btn_search = self.search_panel.btn_search
+        self.btn_clear = self.search_panel.btn_clear
 
-        self.controls_title = QLabel()
-        self.controls_title.setObjectName("CardTitle")
-        self.controls_hint = QLabel()
-        self.controls_hint.setObjectName("CardHint")
-        self.controls_hint.setWordWrap(True)
-        self.img_label = QLabel()
-        self.img_label.setObjectName("ImageDropZone")
-        self.img_label.setAlignment(Qt.AlignCenter)
-        self.img_label.setWordWrap(True)
-        self.img_label.setFixedHeight(COMPONENT_SIZES["image_drop_min_height"])
-        self.img_label.setMinimumWidth(0)
-        self.img_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-        self.text_search = QLineEdit()
-        self.text_search.setObjectName("SearchInput")
-        self.search_mode = QComboBox()
-        self.search_mode.setObjectName("SearchModeSelect")
-        self.search_mode.setFixedWidth(COMPONENT_SIZES["settings_input_width"] + 36)
-        self.search_mode_label = QLabel()
-        self.search_mode_label.setObjectName("CardHint")
-        mode_row = QHBoxLayout()
-        mode_row.setSpacing(8)
-        mode_row.addWidget(self.search_mode_label)
-        mode_row.addWidget(self.search_mode)
-        mode_row.addStretch()
+        self.preview_panel = PreviewPanel()
+        self.preview_card = self.preview_panel
+        self.preview_title = self.preview_panel.preview_title
+        self.preview_host = self.preview_panel.preview_host
+        self.preview_host_layout = self.preview_panel.preview_host_layout
+        self.preview_placeholder = self.preview_panel.preview_placeholder
 
-        mobile_row = QHBoxLayout()
-        mobile_row.setSpacing(8)
-        self.mobile_toggle_label = QLabel()
-        self.mobile_toggle_label.setObjectName("CardHint")
-        self.btn_mobile_toggle = QPushButton()
-        self.btn_mobile_toggle.setObjectName("MobileBridgeToggle")
-        self.btn_mobile_toggle.setCursor(Qt.PointingHandCursor)
-        self.btn_mobile_toggle.setCheckable(True)
-        self.btn_mobile_qr = QPushButton()
-        self.btn_mobile_qr.setObjectName("MobileBridgeQrButton")
-        mobile_row.addWidget(self.mobile_toggle_label)
-        mobile_row.addWidget(self.btn_mobile_toggle)
-        mobile_row.addWidget(self.btn_mobile_qr)
-        mobile_row.addStretch()
+        compare_row.addWidget(self.search_panel, 5)
+        compare_row.addWidget(self.preview_panel, 7)
+        page_body.addLayout(compare_row, 3)
 
-        action_row = QHBoxLayout()
-        action_row.setSpacing(8)
-        self.btn_search = QPushButton()
-        self.btn_search.setObjectName("SearchButton")
-        self.btn_clear = QPushButton()
-        self.btn_clear.setObjectName("DangerGhostButton")
-        action_row.addWidget(self.btn_search, 1)
-        action_row.addWidget(self.btn_clear)
-
-        query_layout.addWidget(self.controls_title)
-        query_layout.addWidget(self.controls_hint)
-        query_layout.addWidget(self.img_label)
-        query_layout.addWidget(self.text_search)
-        query_layout.addLayout(mode_row)
-        query_layout.addLayout(mobile_row)
-        query_layout.addLayout(action_row)
-
-        self.preview_card = QFrame()
-        self.preview_card.setObjectName("PanelCard")
-        preview_layout = QVBoxLayout(self.preview_card)
-        preview_layout.setContentsMargins(18, 18, 18, 18)
-        preview_layout.setSpacing(10)
-        preview_header = QHBoxLayout()
-        preview_header.setContentsMargins(0, 0, 0, 0)
-        preview_header.setSpacing(10)
-        self.preview_title = QLabel()
-        self.preview_title.setObjectName("CardTitle")
-        preview_header.addWidget(self.preview_title, 1)
-        self.preview_host = QFrame()
-        self.preview_host.setObjectName("VideoContainer")
-        self.preview_host.setMinimumHeight(COMPONENT_SIZES["preview_host_min_height"])
-        self.preview_host_layout = QVBoxLayout(self.preview_host)
-        self.preview_host_layout.setContentsMargins(6, 6, 6, 6)
-        self.preview_placeholder = QLabel()
-        self.preview_placeholder.setObjectName("PreviewPlaceholder")
-        self.preview_placeholder.setAlignment(Qt.AlignCenter)
-        self.preview_placeholder.setWordWrap(True)
-        self.preview_host_layout.addWidget(self.preview_placeholder)
-        preview_layout.addLayout(preview_header)
-        preview_layout.addWidget(self.preview_host, 1)
-        compare_row.addWidget(self.query_card, 5)
-        compare_row.addWidget(self.preview_card, 7)
-        root.addLayout(compare_row, 3)
-
-        self.results_card = QFrame()
-        self.results_card.setObjectName("PanelCard")
-        results_layout = QVBoxLayout(self.results_card)
-        results_layout.setContentsMargins(18, 18, 18, 18)
-        results_layout.setSpacing(10)
+        self.results_card = VSCard()
+        results_layout = self.results_card.content_layout
         results_header = QHBoxLayout()
         results_header.setContentsMargins(0, 0, 0, 0)
         results_header.setSpacing(10)
@@ -565,11 +472,11 @@ class SearchPage(QWidget):
         results_header.addWidget(self.results_title, 1)
         results_header.addWidget(self.btn_expand_preview)
         results_header.addWidget(self.btn_export_tasks)
-        self.result_table = ResultTable()
-        self.result_table.setMinimumHeight(COMPONENT_SIZES["result_table_min_height"])
+        self.result_view = ResultView(min_table_height=COMPONENT_SIZES["result_table_min_height"])
+        self.result_table = self.result_view.table
         results_layout.addLayout(results_header)
-        results_layout.addWidget(self.result_table)
-        root.addWidget(self.results_card, 4)
+        results_layout.addWidget(self.result_view)
+        page_body.addWidget(self.results_card, 4)
 
 
 class LibraryPage(QWidget):
@@ -577,16 +484,15 @@ class LibraryPage(QWidget):
         super().__init__(parent)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(12)
+        root.setSpacing(0)
 
-        self.header = PageHeader()
-        root.addWidget(self.header)
+        self.scaffold = PageScaffold()
+        root.addWidget(self.scaffold)
+        self.header = self.scaffold.header
+        page_body = self.scaffold.content_layout
 
-        self.toolbar_card = QFrame()
-        self.toolbar_card.setObjectName("PanelCard")
-        toolbar_card_layout = QVBoxLayout(self.toolbar_card)
-        toolbar_card_layout.setContentsMargins(18, 16, 18, 16)
-        toolbar_card_layout.setSpacing(10)
+        self.toolbar_card = VSCard(margins=(18, 16, 18, 16), spacing=10)
+        toolbar_card_layout = self.toolbar_card.content_layout
 
         def _toolbar_divider():
             divider = QFrame()
@@ -634,28 +540,16 @@ class LibraryPage(QWidget):
         toolbar.addStretch()
         toolbar.addWidget(self.btn_stop_index)
 
-        progress_row = QHBoxLayout()
-        progress_row.setSpacing(12)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setTextVisible(True)
-        self.progress_bar.setFixedHeight(COMPONENT_SIZES["progress_bar_height"])
-        self.progress_bar.setMinimumWidth(COMPONENT_SIZES["progress_bar_min_width"])
-        self.lbl_status = QLabel()
-        self.lbl_status.setObjectName("StatusLabel")
-        self.lbl_status.setWordWrap(True)
-        progress_row.addWidget(self.progress_bar, 1)
-        progress_row.addWidget(self.lbl_status, 1)
+        self.progress_status = VSProgressStatusRow()
+        self.progress_bar = self.progress_status.progress_bar
+        self.lbl_status = self.progress_status.status_label
 
         toolbar_card_layout.addLayout(toolbar)
-        toolbar_card_layout.addLayout(progress_row)
-        root.addWidget(self.toolbar_card)
+        toolbar_card_layout.addWidget(self.progress_status)
+        page_body.addWidget(self.toolbar_card)
 
-        self.table_card = QFrame()
-        self.table_card.setObjectName("PanelCard")
-        table_layout = QVBoxLayout(self.table_card)
-        table_layout.setContentsMargins(18, 18, 18, 18)
-        table_layout.setSpacing(10)
+        self.table_card = VSCard()
+        table_layout = self.table_card.content_layout
         self.table_title = QLabel()
         self.table_title.setObjectName("CardTitle")
         self.library_column_header = QFrame()
@@ -694,7 +588,7 @@ class LibraryPage(QWidget):
         table_layout.addWidget(self.table_title)
         table_layout.addWidget(self.library_column_header)
         table_layout.addWidget(self.library_scroll, 1)
-        root.addWidget(self.table_card, 1)
+        page_body.addWidget(self.table_card, 1)
 
 
 
@@ -703,27 +597,23 @@ class LinkSearchPage(QWidget):
         super().__init__(parent)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(12)
+        root.setSpacing(0)
 
-        self.header = PageHeader()
-        root.addWidget(self.header)
+        self.scaffold = PageScaffold()
+        root.addWidget(self.scaffold)
+        self.header = self.scaffold.header
+        page_body = self.scaffold.content_layout
 
-        self.notice_card = QFrame()
-        self.notice_card.setObjectName("NoticeCard")
-        notice_layout = QVBoxLayout(self.notice_card)
-        notice_layout.setContentsMargins(16, 12, 16, 12)
-        notice_layout.setSpacing(0)
+        self.notice_card = VSCard(variant="notice", margins=(16, 12, 16, 12), spacing=0)
+        notice_layout = self.notice_card.content_layout
         self.notice_body = QLabel()
         self.notice_body.setObjectName("NoticeBody")
         self.notice_body.setWordWrap(True)
         notice_layout.addWidget(self.notice_body)
-        root.addWidget(self.notice_card)
+        page_body.addWidget(self.notice_card)
 
-        self.control_card = QFrame()
-        self.control_card.setObjectName("PanelCard")
-        control_layout = QVBoxLayout(self.control_card)
-        control_layout.setContentsMargins(18, 18, 18, 18)
-        control_layout.setSpacing(12)
+        self.control_card = VSCard(spacing=12)
+        control_layout = self.control_card.content_layout
 
         self.input_link = QLineEdit()
         self.input_link.setObjectName("SearchInput")
@@ -759,16 +649,16 @@ class LinkSearchPage(QWidget):
         self.btn_clear.setObjectName("DangerGhostButton")
         self.btn_clear.setMinimumWidth(98)
         self.btn_import = QPushButton()
-        self.btn_import.setObjectName("AccentGhostButton")
+        self.btn_import.setObjectName("NeutralToolButton")
         self.btn_import.setMinimumWidth(126)
         self.btn_export = QPushButton()
-        self.btn_export.setObjectName("AccentGhostButton")
+        self.btn_export.setObjectName("NeutralToolButton")
         self.btn_export.setMinimumWidth(126)
         self.btn_link_details = QPushButton()
         self.btn_link_details.setObjectName("AccentGhostButton")
         self.btn_link_details.setMinimumWidth(126)
         self.btn_open_cache = QPushButton()
-        self.btn_open_cache.setObjectName("AccentGhostButton")
+        self.btn_open_cache.setObjectName("NeutralToolButton")
         self.btn_open_cache.setMinimumWidth(126)
 
         self.progress_bar = QProgressBar()
@@ -847,44 +737,20 @@ class LinkSearchPage(QWidget):
         self.controls_title = self.build_title
         self.controls_hint = self.build_hint
         self.lbl_status = self.lbl_search_status
-        root.addWidget(self.control_card)
+        page_body.addWidget(self.control_card)
 
-        self.results_card = QFrame()
-        self.results_card.setObjectName("PanelCard")
-        results_layout = QVBoxLayout(self.results_card)
-        results_layout.setContentsMargins(18, 18, 18, 18)
-        results_layout.setSpacing(10)
+        self.results_card = VSCard()
+        results_layout = self.results_card.content_layout
         self.results_title = QLabel()
         self.results_title.setObjectName("CardTitle")
-        self.result_table = LinkResultTable()
-        self.result_table.setMinimumHeight(COMPONENT_SIZES["result_table_min_height"])
+        self.result_view = ResultView(
+            table=LinkResultTable(),
+            min_table_height=COMPONENT_SIZES["result_table_min_height"],
+        )
+        self.result_table = self.result_view.table
         results_layout.addWidget(self.results_title)
-        results_layout.addWidget(self.result_table)
-        root.addWidget(self.results_card, 1)
-
-
-class LinkResultTable(QTableWidget):
-    def __init__(self, parent=None):
-        super().__init__(0, 6, parent)
-        self.setObjectName("ResultTable")
-        self.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.verticalHeader().setVisible(False)
-        self.verticalHeader().setDefaultSectionSize(72)
-        self.setAlternatingRowColors(False)
-        self.setFocusPolicy(Qt.NoFocus)
-        self.setShowGrid(False)
-        self.horizontalHeader().setStretchLastSection(False)
-        self.setColumnWidth(0, 46)
-        self.setColumnWidth(2, 90)
-        self.setColumnWidth(3, 74)
-        self.setColumnWidth(4, 300)
-        self.setColumnWidth(5, 116)
-        self.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
-        self.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
-        self.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
-        self.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
-        self.horizontalHeader().setSectionResizeMode(5, QHeaderView.Fixed)
+        results_layout.addWidget(self.result_view)
+        page_body.addWidget(self.results_card, 1)
 
 
 class RemixMatchPage(QWidget):
@@ -892,10 +758,12 @@ class RemixMatchPage(QWidget):
         super().__init__(parent)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(12)
+        root.setSpacing(0)
 
-        self.header = PageHeader()
-        root.addWidget(self.header)
+        self.scaffold = PageScaffold()
+        root.addWidget(self.scaffold)
+        self.header = self.scaffold.header
+        page_body = self.scaffold.content_layout
 
         spin_w = max(104, COMPONENT_SIZES.get("settings_input_width", 116) + 8)
 
@@ -949,11 +817,8 @@ class RemixMatchPage(QWidget):
         self.lbl_status.setObjectName("StatusLabel")
         self.lbl_status.setWordWrap(True)
 
-        self.remix_source_card = QFrame()
-        self.remix_source_card.setObjectName("PanelCard")
-        source_layout = QVBoxLayout(self.remix_source_card)
-        source_layout.setContentsMargins(18, 18, 18, 18)
-        source_layout.setSpacing(12)
+        self.remix_source_card = VSCard(spacing=12)
+        source_layout = self.remix_source_card.content_layout
         source_layout.addWidget(self.mix_label)
         source_layout.addWidget(self.mix_hint)
         source_layout.addWidget(self.mix_path_frame)
@@ -1164,22 +1029,25 @@ class RemixMatchPage(QWidget):
         ):
             _spin.valueChanged.connect(self._on_remix_spin_param_changed)
 
-        self.remix_params_card = QFrame()
-        self.remix_params_card.setObjectName("PanelCard")
-        params_card_layout = QVBoxLayout(self.remix_params_card)
-        params_card_layout.setContentsMargins(18, 18, 18, 18)
-        params_card_layout.setSpacing(12)
+        self.remix_params_card = VSCard(spacing=12)
+        params_card_layout = self.remix_params_card.content_layout
         params_card_layout.addWidget(self.params_disclosure)
         params_card_layout.addLayout(preset_top)
         params_card_layout.addWidget(self.remix_preset_guide)
         params_card_layout.addWidget(self.remix_params_body)
         self.remix_params_body.setVisible(False)
+        # Default: Standard preset, parameters collapsed; expand when user selects Custom or edits into Custom.
+        self._apply_remix_preset("standard")
+        self._remix_preset_block = True
+        try:
+            self.combo_remix_preset.setCurrentIndex(1)
+        finally:
+            self._remix_preset_block = False
+        self._remix_params_expanded = False
+        self._sync_remix_disclosure_headers()
 
-        self.scope_card = QFrame()
-        self.scope_card.setObjectName("PanelCard")
-        scope_layout = QVBoxLayout(self.scope_card)
-        scope_layout.setContentsMargins(18, 18, 18, 18)
-        scope_layout.setSpacing(12)
+        self.scope_card = VSCard(spacing=12)
+        scope_layout = self.scope_card.content_layout
 
         self.scope_section_title = QLabel()
         self.scope_section_title.setObjectName("CardTitle")
@@ -1247,29 +1115,43 @@ class RemixMatchPage(QWidget):
         self._scope_stash_layout.setSpacing(0)
         self._scope_stash_layout.addWidget(self.scope_list_body)
 
-        root.addWidget(self.remix_params_card)
-        root.addWidget(self.scope_card, 1)
-        root.addWidget(self._scope_editor_stash)
+        page_body.addWidget(self.remix_params_card)
+        page_body.addWidget(self.scope_card, 1)
+        page_body.addWidget(self._scope_editor_stash)
 
-        self.results_card = QFrame()
-        self.results_card.setObjectName("PanelCard")
-        results_layout = QVBoxLayout(self.results_card)
-        results_layout.setContentsMargins(18, 18, 18, 18)
-        results_layout.setSpacing(10)
+        self.results_card = VSCard()
+        results_layout = self.results_card.content_layout
+        results_header = QHBoxLayout()
+        results_header.setContentsMargins(0, 0, 0, 0)
+        results_header.setSpacing(10)
         self.results_title = QLabel()
         self.results_title.setObjectName("CardTitle")
-        self.result_table = ResultTable()
-        self.result_table.setMinimumHeight(min(440, COMPONENT_SIZES["result_table_min_height"]))
-        self.result_table.setColumnWidth(7, 250)
-        results_layout.addWidget(self.results_title)
-        results_layout.addWidget(self.result_table)
-        root.addWidget(self.remix_source_card)
-        root.addWidget(self.results_card, 1)
+        self.btn_export_tasks = QPushButton()
+        self.btn_export_tasks.setObjectName("GhostButton")
+        results_header.addWidget(self.results_title, 1)
+        results_header.addWidget(self.btn_export_tasks)
+        self.result_view = ResultView(
+            table=RemixResultTable(),
+            min_table_height=min(440, COMPONENT_SIZES["result_table_min_height"]),
+        )
+        self.result_table = self.result_view.table
+        results_layout.addLayout(results_header)
+        results_layout.addWidget(self.result_view)
+        page_body.addWidget(self.remix_source_card)
+        page_body.addWidget(self.results_card, 1)
 
     def _sync_remix_disclosure_headers(self):
         self.params_disclosure.set_expanded(self._remix_params_expanded)
         self.remix_params_body.setVisible(self._remix_params_expanded)
-        self.params_disclosure.setToolTip("")
+
+    def _sync_remix_params_expanded_for_preset_key(self, key: str) -> None:
+        """Only auto-expand when entering Custom (combo or spin drift); never auto-collapse on preset changes."""
+        if key != "custom":
+            return
+        if not self._remix_params_expanded:
+            self._remix_params_expanded = True
+            self.remix_params_body.setVisible(True)
+            self._sync_remix_disclosure_headers()
 
     def configure_remix_scope_section(self, texts: dict) -> None:
         self.scope_section_title.setText(texts.get("remix_scope_title", ""))
@@ -1342,6 +1224,7 @@ class RemixMatchPage(QWidget):
         finally:
             self._remix_preset_block = False
         self._set_remix_preset_hint(key)
+        self._sync_remix_params_expanded_for_preset_key(key)
 
     def _apply_remix_preset(self, key: str) -> None:
         spec = REMIX_PRESETS.get(key)
@@ -1371,6 +1254,7 @@ class RemixMatchPage(QWidget):
             self._apply_remix_preset(keys[index])
         else:
             self._set_remix_preset_hint("custom")
+            self._sync_remix_params_expanded_for_preset_key("custom")
 
     def _on_remix_spin_param_changed(self, *_args) -> None:
         if self._remix_preset_block:
@@ -1427,866 +1311,3 @@ class RemixMatchPage(QWidget):
             spin.setToolTip("")
         self._sync_remix_preset_combo_from_values()
         self._sync_remix_disclosure_headers()
-
-
-class SettingsPage(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(12)
-
-        self.header = PageHeader()
-        root.addWidget(self.header)
-
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.NoFrame)
-        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        root.addWidget(self.scroll, 1)
-
-        self.scroll_content = QWidget()
-        self.scroll.setWidget(self.scroll_content)
-        content_layout = QVBoxLayout(self.scroll_content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(12)
-
-        self.form_card = QFrame()
-        self.form_card.setObjectName("PanelCard")
-        form_layout = QVBoxLayout(self.form_card)
-        form_layout.setContentsMargins(18, 18, 18, 18)
-        form_layout.setSpacing(16)
-        content_layout.addWidget(self.form_card)
-        content_layout.addStretch()
-
-        self.general_title = QLabel()
-        self.general_title.setObjectName("CardTitle")
-        form_layout.addWidget(self.general_title)
-
-        self.runtime_status_card = QFrame()
-        self.runtime_status_card.setObjectName("SubPanelCard")
-        runtime_status_layout = QVBoxLayout(self.runtime_status_card)
-        runtime_status_layout.setContentsMargins(14, 12, 14, 12)
-        runtime_status_layout.setSpacing(8)
-        self.runtime_status_title = QLabel()
-        self.runtime_status_title.setObjectName("CardTitle")
-        self.runtime_status_header = QWidget()
-        runtime_status_header_layout = QHBoxLayout(self.runtime_status_header)
-        runtime_status_header_layout.setContentsMargins(0, 0, 0, 0)
-        runtime_status_header_layout.setSpacing(8)
-        self.runtime_status_backend = QLabel()
-        self.runtime_status_backend.setObjectName("StatusHint")
-        self.runtime_status_backend.setWordWrap(True)
-        self.runtime_status_backend.setTextFormat(Qt.RichText)
-        self.runtime_status_backend.setTextInteractionFlags(Qt.TextBrowserInteraction)
-        self.runtime_status_backend.setOpenExternalLinks(True)
-        self.btn_show_runtime_diagnostics = QPushButton()
-        self.btn_show_runtime_diagnostics.setObjectName("AccentGhostButton")
-        self.btn_show_runtime_diagnostics.setMinimumHeight(30)
-        self.btn_show_runtime_diagnostics.setMinimumWidth(150)
-        self.runtime_status_ffmpeg = QLabel()
-        self.runtime_status_ffmpeg.setObjectName("StatusHint")
-        self.runtime_status_ffmpeg.setWordWrap(True)
-        self.runtime_status_data = QLabel()
-        self.runtime_status_data.setObjectName("StatusHint")
-        self.runtime_status_data.setWordWrap(True)
-        runtime_status_header_layout.addWidget(self.runtime_status_title, 0)
-        runtime_status_header_layout.addStretch(1)
-        runtime_status_header_layout.addWidget(self.btn_show_runtime_diagnostics, 0)
-        runtime_status_layout.addWidget(self.runtime_status_header)
-        runtime_status_layout.addWidget(self.runtime_status_backend)
-        runtime_status_layout.addWidget(self.runtime_status_ffmpeg)
-        runtime_status_layout.addWidget(self.runtime_status_data)
-        form_layout.addWidget(self.runtime_status_card)
-
-        self.input_fps = NoWheelDoubleSpinBox()
-        self.input_fps.setRange(0.01, 24.0)
-        self.input_fps.setDecimals(2)
-        self.input_fps.setSingleStep(0.1)
-        self.input_sampling_fps_mode = NoWheelComboBox()
-        self.input_sampling_fps_rules = QLineEdit(self)
-        self.input_top_k = NoWheelSpinBox()
-        self.input_top_k.setRange(1, 200)
-        self.input_frame_neighbor_rerank_enabled = NoWheelComboBox()
-        self.input_frame_neighbor_rerank_top_n = NoWheelSpinBox()
-        self.input_frame_neighbor_rerank_top_n.setRange(1, 100)
-        self.input_frame_neighbor_rerank_window = NoWheelSpinBox()
-        self.input_frame_neighbor_rerank_window.setRange(1, 12)
-        self.input_preview_seconds = NoWheelSpinBox()
-        self.input_preview_seconds.setRange(2, 20)
-        self.input_preview_width = NoWheelSpinBox()
-        self.input_preview_width.setRange(160, 1920)
-        self.input_preview_height = NoWheelSpinBox()
-        self.input_preview_height.setRange(90, 1080)
-        self.input_thumb_width = NoWheelSpinBox()
-        self.input_thumb_width.setRange(80, 480)
-        self.input_thumb_height = NoWheelSpinBox()
-        self.input_thumb_height.setRange(45, 320)
-        self.input_remote_max_frames = NoWheelSpinBox()
-        self.input_remote_max_frames.setRange(200, 20000)
-        self.input_embedding_batch_size = NoWheelSpinBox()
-        self.input_embedding_batch_size.setRange(1, 64)
-        self.input_similarity_threshold = NoWheelDoubleSpinBox()
-        self.input_similarity_threshold.setRange(0.1, 1.0)
-        self.input_similarity_threshold.setSingleStep(0.01)
-        self.input_similarity_threshold.setDecimals(2)
-        self.input_max_chunk_duration = NoWheelDoubleSpinBox()
-        self.input_max_chunk_duration.setRange(1.0, 60.0)
-        self.input_max_chunk_duration.setSingleStep(0.5)
-        self.input_max_chunk_duration.setDecimals(1)
-        self.input_min_chunk_size = NoWheelSpinBox()
-        self.input_min_chunk_size.setRange(1, 50)
-        self.input_chunk_similarity_mode = NoWheelComboBox()
-        self.input_prefer_gpu = NoWheelComboBox()
-        self.input_gpu_probe_unknown_keep_gpu = NoWheelComboBox()
-        self.input_auto_cleanup_missing_files = NoWheelComboBox()
-        self.input_export_video_silent = NoWheelComboBox()
-        self.input_active_model_profile = NoWheelComboBox()
-        self.btn_download_runtime_resources = QPushButton()
-        self.btn_remove_model_profile = QPushButton()
-        self.input_data_root = QLineEdit()
-        self.btn_browse_data_root = QPushButton()
-        self.input_ffmpeg_path = QLineEdit()
-        self.btn_browse_ffmpeg_path = QPushButton()
-        self.input_model_dir = QLineEdit()
-        self.btn_browse_model_dir = QPushButton()
-        self.btn_migrate_model_dir = QPushButton()
-        self.section_search_title = QLabel()
-        self.section_preview_title = QLabel()
-        self.section_index_title = QLabel()
-        self.section_runtime_title = QLabel()
-        self.label_fps = ClickableLabel()
-        self.label_top_k = ClickableLabel()
-        self.label_frame_neighbor_rerank_enabled = ClickableLabel()
-        self.label_frame_neighbor_rerank_top_n = ClickableLabel()
-        self.label_frame_neighbor_rerank_window = ClickableLabel()
-        self.label_preview_seconds = ClickableLabel()
-        self.label_preview_width = ClickableLabel()
-        self.label_preview_height = ClickableLabel()
-        self.label_thumb_width = ClickableLabel()
-        self.label_thumb_height = ClickableLabel()
-        self.label_export_video_silent = ClickableLabel()
-        self.label_remote_max_frames = ClickableLabel()
-        self.label_embedding_batch_size = ClickableLabel()
-        self.label_similarity_threshold = ClickableLabel()
-        self.label_max_chunk_duration = ClickableLabel()
-        self.label_min_chunk_size = ClickableLabel()
-        self.label_chunk_similarity_mode = ClickableLabel()
-        self.label_prefer_gpu = ClickableLabel()
-        self.label_gpu_probe_unknown_keep_gpu = ClickableLabel()
-        self.label_auto_cleanup_missing_files = ClickableLabel()
-        self.label_active_model_profile = ClickableLabel()
-        self.label_data_root = ClickableLabel()
-        self.label_ffmpeg_path = ClickableLabel()
-        self.label_model_dir = ClickableLabel()
-        self.hint_fps = QLabel()
-        self.hint_sampling_fps_mode = QLabel()
-        self.hint_sampling_fps_rules = QLabel()
-        self.hint_sampling_fps_preview = QLabel()
-        self.sampling_rules_summary = QLabel()
-        self.btn_edit_sampling_rules = QPushButton()
-        self.hint_top_k = QLabel()
-        self.hint_frame_neighbor_rerank_enabled = QLabel()
-        self.hint_frame_neighbor_rerank_top_n = QLabel()
-        self.hint_frame_neighbor_rerank_window = QLabel()
-        self.hint_preview_seconds = QLabel()
-        self.hint_preview_width = QLabel()
-        self.hint_preview_height = QLabel()
-        self.hint_thumb_width = QLabel()
-        self.hint_thumb_height = QLabel()
-        self.hint_export_video_silent = QLabel()
-        self.hint_remote_max_frames = QLabel()
-        self.hint_embedding_batch_size = QLabel()
-        self.hint_similarity_threshold = QLabel()
-        self.hint_max_chunk_duration = QLabel()
-        self.hint_min_chunk_size = QLabel()
-        self.hint_chunk_similarity_mode = QLabel()
-        self.hint_prefer_gpu = QLabel()
-        self.hint_gpu_probe_unknown_keep_gpu = QLabel()
-        self.hint_auto_cleanup_missing_files = QLabel()
-        self.hint_active_model_profile = QLabel()
-        self.hint_data_root = QLabel()
-        self.hint_ffmpeg_path = QLabel()
-        self.hint_ffmpeg_active = QLabel()
-        self.hint_inference_backend = QLabel()
-        self.hint_gpu_runtime = QLabel()
-        self.hint_model_dir = QLabel()
-        self.sampling_rule_rows = []
-        self._setting_detail_bindings = []
-        self._active_setting_label = None
-        self.detail_popup = SettingDetailPopup(is_dark=True)
-        QApplication.instance().installEventFilter(self.detail_popup)
-
-        self._configure_setting_input(self.input_fps, width=94)
-        self._configure_setting_input(self.input_sampling_fps_mode, width=136)
-        self._configure_setting_input(self.input_top_k, width=COMPONENT_SIZES["settings_input_width"])
-        self._configure_setting_input(
-            self.input_frame_neighbor_rerank_enabled,
-            width=COMPONENT_SIZES["settings_input_width"] + 36,
-        )
-        self._configure_setting_input(
-            self.input_frame_neighbor_rerank_top_n,
-            width=COMPONENT_SIZES["settings_input_width"],
-        )
-        self._configure_setting_input(
-            self.input_frame_neighbor_rerank_window,
-            width=COMPONENT_SIZES["settings_input_width"],
-        )
-        self._configure_setting_input(self.input_preview_seconds, width=COMPONENT_SIZES["settings_input_width"])
-        self._configure_setting_input(self.input_preview_width, width=COMPONENT_SIZES["settings_input_width"])
-        self._configure_setting_input(self.input_preview_height, width=COMPONENT_SIZES["settings_input_width"])
-        self._configure_setting_input(self.input_thumb_width, width=COMPONENT_SIZES["settings_input_width"])
-        self._configure_setting_input(self.input_thumb_height, width=COMPONENT_SIZES["settings_input_width"])
-        self._configure_setting_input(self.input_remote_max_frames, width=COMPONENT_SIZES["settings_input_width"])
-        self._configure_setting_input(self.input_embedding_batch_size, width=COMPONENT_SIZES["settings_input_width"])
-        self._configure_setting_input(self.input_similarity_threshold, width=COMPONENT_SIZES["settings_input_width"])
-        self._configure_setting_input(self.input_max_chunk_duration, width=COMPONENT_SIZES["settings_input_width"])
-        self._configure_setting_input(self.input_min_chunk_size, width=COMPONENT_SIZES["settings_input_width"])
-        self._configure_setting_input(self.input_chunk_similarity_mode, width=COMPONENT_SIZES["settings_input_width"] + 36)
-        self._configure_setting_input(self.input_prefer_gpu, width=COMPONENT_SIZES["settings_input_width"] + 36)
-        self._configure_setting_input(self.input_gpu_probe_unknown_keep_gpu, width=COMPONENT_SIZES["settings_input_width"] + 36)
-        self._configure_setting_input(self.input_auto_cleanup_missing_files, width=COMPONENT_SIZES["settings_input_width"] + 36)
-        self._configure_setting_input(self.input_export_video_silent, width=COMPONENT_SIZES["settings_input_width"] + 36)
-        self._configure_setting_input(self.input_active_model_profile, width=COMPONENT_SIZES["settings_input_width"] + 120)
-        self.btn_download_runtime_resources.setObjectName("AccentGhostButton")
-        self.btn_download_runtime_resources.setMinimumHeight(34)
-        self.btn_remove_model_profile.setObjectName("DangerGhostButton")
-        self.btn_remove_model_profile.setMinimumHeight(34)
-        self._configure_setting_input(self.input_data_root, width=COMPONENT_SIZES["settings_path_input_width"], expanding=True)
-        self._configure_setting_input(self.input_ffmpeg_path, width=COMPONENT_SIZES["settings_path_input_width"], expanding=True)
-        self._configure_setting_input(self.input_model_dir, width=COMPONENT_SIZES["settings_path_input_width"], expanding=True)
-        self.btn_browse_data_root.setObjectName("AccentGhostButton")
-        self.btn_browse_data_root.setMinimumHeight(34)
-        self.btn_browse_ffmpeg_path.setObjectName("AccentGhostButton")
-        self.btn_browse_ffmpeg_path.setMinimumHeight(34)
-        self.btn_browse_model_dir.setObjectName("SuccessGhostButton")
-        self.btn_browse_model_dir.setMinimumHeight(34)
-        self.btn_migrate_model_dir.setObjectName("AccentGhostButton")
-        self.btn_migrate_model_dir.setMinimumHeight(34)
-
-        self.input_data_root_bundle = QWidget()
-        input_data_root_bundle_layout = QHBoxLayout(self.input_data_root_bundle)
-        input_data_root_bundle_layout.setContentsMargins(0, 0, 0, 0)
-        input_data_root_bundle_layout.setSpacing(8)
-        input_data_root_bundle_layout.addWidget(self.input_data_root, 1)
-        input_data_root_bundle_layout.addWidget(self.btn_browse_data_root, 0)
-
-        self.input_ffmpeg_path_bundle = QWidget()
-        input_ffmpeg_path_bundle_layout = QHBoxLayout(self.input_ffmpeg_path_bundle)
-        input_ffmpeg_path_bundle_layout.setContentsMargins(0, 0, 0, 0)
-        input_ffmpeg_path_bundle_layout.setSpacing(8)
-        input_ffmpeg_path_bundle_layout.addWidget(self.input_ffmpeg_path, 1)
-        input_ffmpeg_path_bundle_layout.addWidget(self.btn_browse_ffmpeg_path, 0)
-
-        self.input_model_dir_bundle = QWidget()
-        input_model_dir_bundle_layout = QHBoxLayout(self.input_model_dir_bundle)
-        input_model_dir_bundle_layout.setContentsMargins(0, 0, 0, 0)
-        input_model_dir_bundle_layout.setSpacing(8)
-        self.model_dir_buttons_row = QWidget()
-        model_dir_buttons_layout = QHBoxLayout(self.model_dir_buttons_row)
-        model_dir_buttons_layout.setContentsMargins(0, 0, 0, 0)
-        model_dir_buttons_layout.setSpacing(8)
-        model_dir_buttons_layout.addWidget(self.btn_browse_model_dir, 0)
-        model_dir_buttons_layout.addWidget(self.btn_migrate_model_dir, 0)
-        input_model_dir_bundle_layout.addWidget(self.input_model_dir, 1)
-        input_model_dir_bundle_layout.addWidget(self.model_dir_buttons_row, 0)
-
-        self.input_active_model_profile_bundle = QWidget()
-        active_model_profile_bundle_layout = QHBoxLayout(self.input_active_model_profile_bundle)
-        active_model_profile_bundle_layout.setContentsMargins(0, 0, 0, 0)
-        active_model_profile_bundle_layout.setSpacing(8)
-        active_model_profile_bundle_layout.addWidget(self.input_active_model_profile, 1)
-        active_model_profile_bundle_layout.addWidget(self.btn_download_runtime_resources, 0)
-        active_model_profile_bundle_layout.addWidget(self.btn_remove_model_profile, 0)
-
-        self.sections_stack = QVBoxLayout()
-        self.sections_stack.setContentsMargins(0, 0, 0, 0)
-        self.sections_stack.setSpacing(12)
-        form_layout.addLayout(self.sections_stack)
-
-        for hint_label in (
-            self.hint_sampling_fps_mode,
-            self.hint_sampling_fps_rules,
-            self.hint_sampling_fps_preview,
-        ):
-            hint_label.setObjectName("StatusHint")
-            hint_label.setWordWrap(True)
-        self.sampling_rules_summary.setObjectName("StatusHint")
-        self.sampling_rules_summary.setWordWrap(False)
-
-        self.input_sampling_bundle = QWidget()
-        self.input_sampling_bundle.setObjectName("SamplingBundle")
-        sampling_bundle_layout = QHBoxLayout(self.input_sampling_bundle)
-        sampling_bundle_layout.setContentsMargins(0, 0, 0, 0)
-        sampling_bundle_layout.setSpacing(8)
-        sampling_bundle_layout.addWidget(self.input_sampling_fps_mode, 0)
-        sampling_bundle_layout.addWidget(self.input_fps, 0)
-        self.btn_edit_sampling_rules.setObjectName("AccentGhostButton")
-        sampling_bundle_layout.addWidget(self.btn_edit_sampling_rules, 0)
-        self.sampling_rules_summary.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        sampling_bundle_layout.addWidget(self.sampling_rules_summary, 1)
-        self.input_sampling_fps_rules.hide()
-
-        self.section_search_card, self.section_search_form = self._create_settings_section(self.section_search_title)
-        self.section_preview_card, self.section_preview_form = self._create_settings_section(self.section_preview_title)
-        self.section_index_card, self.section_index_form = self._create_settings_section(self.section_index_title)
-        self.section_runtime_card, self.section_runtime_form = self._create_settings_section(self.section_runtime_title)
-        self._add_setting_row(
-            self.section_search_form,
-            0,
-            self.label_fps,
-            self.input_sampling_bundle,
-            self.hint_fps,
-            show_help=False,
-        )
-        self._add_setting_row(self.section_search_form, 1, self.label_top_k, self.input_top_k, self.hint_top_k)
-        self._add_setting_row(
-            self.section_search_form,
-            2,
-            self.label_frame_neighbor_rerank_enabled,
-            self.input_frame_neighbor_rerank_enabled,
-            self.hint_frame_neighbor_rerank_enabled,
-        )
-        self.frame_neighbor_rerank_top_n_row = self._add_setting_row(
-            self.section_search_form,
-            3,
-            self.label_frame_neighbor_rerank_top_n,
-            self.input_frame_neighbor_rerank_top_n,
-            self.hint_frame_neighbor_rerank_top_n,
-        )
-        self.frame_neighbor_rerank_window_row = self._add_setting_row(
-            self.section_search_form,
-            4,
-            self.label_frame_neighbor_rerank_window,
-            self.input_frame_neighbor_rerank_window,
-            self.hint_frame_neighbor_rerank_window,
-        )
-        self._add_setting_row(
-            self.section_search_form,
-            5,
-            self.label_remote_max_frames,
-            self.input_remote_max_frames,
-            self.hint_remote_max_frames,
-        )
-
-        self._add_setting_row(self.section_preview_form, 0, self.label_preview_seconds, self.input_preview_seconds, self.hint_preview_seconds)
-        self._add_setting_row(self.section_preview_form, 1, self.label_preview_width, self.input_preview_width, self.hint_preview_width)
-        self._add_setting_row(self.section_preview_form, 2, self.label_preview_height, self.input_preview_height, self.hint_preview_height)
-        self._add_setting_row(self.section_preview_form, 3, self.label_thumb_width, self.input_thumb_width, self.hint_thumb_width)
-        self._add_setting_row(self.section_preview_form, 4, self.label_thumb_height, self.input_thumb_height, self.hint_thumb_height)
-        self._add_setting_row(
-            self.section_preview_form,
-            5,
-            self.label_export_video_silent,
-            self.input_export_video_silent,
-            self.hint_export_video_silent,
-        )
-
-        self._add_setting_row(self.section_index_form, 0, self.label_embedding_batch_size, self.input_embedding_batch_size, self.hint_embedding_batch_size)
-        self._add_setting_row(self.section_index_form, 1, self.label_similarity_threshold, self.input_similarity_threshold, self.hint_similarity_threshold)
-        self._add_setting_row(self.section_index_form, 2, self.label_max_chunk_duration, self.input_max_chunk_duration, self.hint_max_chunk_duration)
-        self._add_setting_row(self.section_index_form, 3, self.label_min_chunk_size, self.input_min_chunk_size, self.hint_min_chunk_size)
-        self._add_setting_row(self.section_index_form, 4, self.label_chunk_similarity_mode, self.input_chunk_similarity_mode, self.hint_chunk_similarity_mode)
-
-        self._add_setting_row(
-            self.section_runtime_form,
-            0,
-            self.label_prefer_gpu,
-            self.input_prefer_gpu,
-            self.hint_prefer_gpu,
-        )
-        self._add_setting_row(
-            self.section_runtime_form,
-            1,
-            self.label_gpu_probe_unknown_keep_gpu,
-            self.input_gpu_probe_unknown_keep_gpu,
-            self.hint_gpu_probe_unknown_keep_gpu,
-        )
-        self._add_setting_row(
-            self.section_runtime_form,
-            2,
-            self.label_auto_cleanup_missing_files,
-            self.input_auto_cleanup_missing_files,
-            self.hint_auto_cleanup_missing_files,
-        )
-        self._add_setting_row(
-            self.section_runtime_form,
-            3,
-            self.label_active_model_profile,
-            self.input_active_model_profile_bundle,
-            self.hint_active_model_profile,
-        )
-        self._add_setting_row(
-            self.section_runtime_form,
-            4,
-            self.label_data_root,
-            self.input_data_root_bundle,
-            self.hint_data_root,
-        )
-        self._add_setting_row(
-            self.section_runtime_form,
-            5,
-            self.label_ffmpeg_path,
-            self.input_ffmpeg_path_bundle,
-            self.hint_ffmpeg_path,
-        )
-        self._add_setting_row(
-            self.section_runtime_form,
-            6,
-            self.label_model_dir,
-            self.input_model_dir_bundle,
-            self.hint_model_dir,
-            label_vcenter=True,
-        )
-
-        self.sections_stack.addWidget(self.section_search_card)
-        self.sections_stack.addWidget(self.section_preview_card)
-        self.sections_stack.addWidget(self.section_index_card)
-        self.sections_stack.addWidget(self.section_runtime_card)
-
-        self.action_card = QFrame()
-        self.action_card.setObjectName("PanelCard")
-        action_card_layout = QVBoxLayout(self.action_card)
-        action_card_layout.setContentsMargins(18, 14, 18, 14)
-        action_card_layout.setSpacing(10)
-
-        action_primary_row = QHBoxLayout()
-        action_primary_row.setSpacing(8)
-        self.btn_save = QPushButton()
-        self.btn_save.setObjectName("PrimaryButton")
-        self.btn_reset = QPushButton()
-        self.btn_reset.setObjectName("GhostButton")
-        action_primary_row.addWidget(self.btn_save)
-        action_primary_row.addWidget(self.btn_reset)
-        action_primary_row.addStretch()
-        action_card_layout.addLayout(action_primary_row)
-
-        action_cleanup_row = QHBoxLayout()
-        action_cleanup_row.setSpacing(8)
-        self.btn_cleanup_old_data_root = QPushButton()
-        self.btn_cleanup_old_data_root.setObjectName("DangerGhostButton")
-        self.btn_cleanup_old_data_root.hide()
-        self.btn_cleanup_old_model_dir = QPushButton()
-        self.btn_cleanup_old_model_dir.setObjectName("DangerGhostButton")
-        self.btn_cleanup_old_model_dir.hide()
-        action_cleanup_row.addWidget(self.btn_cleanup_old_data_root)
-        action_cleanup_row.addWidget(self.btn_cleanup_old_model_dir)
-        action_cleanup_row.addStretch()
-        action_card_layout.addLayout(action_cleanup_row)
-
-        self.lbl_status = QLabel()
-        self.lbl_status.setObjectName("StatusLabel")
-        self.lbl_status.setWordWrap(True)
-        action_card_layout.addWidget(self.lbl_status)
-        root.addWidget(self.action_card, 0)
-        self.input_sampling_fps_mode.currentIndexChanged.connect(self._handle_sampling_mode_changed)
-        self.input_frame_neighbor_rerank_enabled.currentIndexChanged.connect(
-            self._handle_frame_neighbor_rerank_enabled_changed
-        )
-        self._update_sampling_mode_visibility()
-        self._update_frame_neighbor_rerank_visibility()
-
-    def _handle_sampling_mode_changed(self, *_args):
-        self._update_sampling_mode_visibility()
-
-    def _handle_frame_neighbor_rerank_enabled_changed(self, *_args):
-        self._update_frame_neighbor_rerank_visibility()
-
-    def _update_sampling_mode_visibility(self):
-        is_dynamic = self.get_sampling_fps_mode() == "dynamic"
-        self.input_fps.setVisible(not is_dynamic)
-        self.btn_edit_sampling_rules.setVisible(is_dynamic)
-        self.sampling_rules_summary.setVisible(is_dynamic)
-        self.hint_fps.setVisible(False)
-        self.hint_sampling_fps_mode.setVisible(False)
-        self.hint_sampling_fps_rules.setVisible(False)
-        self.hint_sampling_fps_preview.setVisible(False)
-
-    def _update_frame_neighbor_rerank_visibility(self):
-        enabled = bool(self.input_frame_neighbor_rerank_enabled.currentData())
-        if hasattr(self, "frame_neighbor_rerank_top_n_row"):
-            self.frame_neighbor_rerank_top_n_row.setVisible(enabled)
-        if hasattr(self, "frame_neighbor_rerank_window_row"):
-            self.frame_neighbor_rerank_window_row.setVisible(enabled)
-
-    def get_sampling_fps_mode(self):
-        return str(self.input_sampling_fps_mode.currentData() or "fixed")
-
-    def set_sampling_fps_mode(self, mode):
-        normalized_mode = str(mode or "fixed")
-        index = self.input_sampling_fps_mode.findData(normalized_mode)
-        self.input_sampling_fps_mode.setCurrentIndex(0 if index < 0 else index)
-        self._update_sampling_mode_visibility()
-
-    def set_sampling_fps_rules_text(self, rules_text):
-        self.input_sampling_fps_rules.setText(str(rules_text or "").strip())
-        self.refresh_sampling_rules_summary()
-
-    def get_sampling_fps_rules_text(self):
-        return self.input_sampling_fps_rules.text().strip()
-
-    def set_sampling_rules_error_state(self, has_error):
-        self.sampling_rules_summary.setProperty("state", "error" if has_error else "neutral")
-        repolish_widget(self.sampling_rules_summary)
-
-    def refresh_sampling_rules_summary(self):
-        normalized = self.get_sampling_fps_rules_text()
-        if not normalized:
-            self.sampling_rules_summary.setText("")
-            return
-        parts = []
-        for chunk in normalized.split(";"):
-            item = chunk.strip()
-            if item:
-                parts.append(item)
-        self.sampling_rules_summary.setText(" | ".join(parts[:3]) + (" ..." if len(parts) > 3 else ""))
-
-    def _configure_setting_input(self, widget, width, expanding=False):
-        widget.setMinimumWidth(width)
-        widget.setMaximumWidth(16777215 if expanding else width + 44)
-        widget.setMinimumHeight(34)
-        widget.setSizePolicy(QSizePolicy.Expanding if expanding else QSizePolicy.Fixed, QSizePolicy.Fixed)
-        widget.setProperty("settingField", True)
-
-    def _configure_setting_label(self, label):
-        label.setMinimumWidth(140)
-        label.setMaximumWidth(210)
-        label.setMinimumHeight(40)
-        label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        label.setWordWrap(True)
-        label.setProperty("settingLabel", True)
-
-    def _create_settings_section(self, title_label):
-        card = QFrame()
-        card.setObjectName("SubPanelCard")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        title_label.setObjectName("CardTitle")
-        title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        title_wrap = QWidget()
-        title_wrap.setObjectName("SettingsSectionHeader")
-        title_wrap_layout = QHBoxLayout(title_wrap)
-        title_wrap_layout.setContentsMargins(16, 14, 16, 14)
-        title_wrap_layout.setSpacing(0)
-        title_wrap_layout.addWidget(title_label)
-        title_wrap_layout.addStretch()
-        layout.addWidget(title_wrap)
-        form = QGridLayout()
-        form.setContentsMargins(16, 4, 16, 8)
-        form.setHorizontalSpacing(16)
-        form.setVerticalSpacing(0)
-        form.setColumnMinimumWidth(0, 260)
-        form.setColumnStretch(0, 0)
-        form.setColumnStretch(1, 1)
-        layout.addLayout(form)
-        return card, form
-
-    def _add_setting_row(
-        self,
-        grid,
-        row,
-        label,
-        field,
-        hint_label,
-        *extra_hint_labels,
-        show_help=True,
-        label_vcenter=False,
-    ):
-        row_widget = self._build_setting_row(field)
-        label_block = self._build_setting_label_block(label, hint_label, extra_hint_labels)
-        row_container = QWidget()
-        row_container.setObjectName("SettingRowContainer")
-        row_layout = QGridLayout(row_container)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setHorizontalSpacing(16)
-        row_layout.setVerticalSpacing(0)
-        row_layout.setColumnMinimumWidth(0, 260)
-        row_layout.setColumnStretch(0, 0)
-        row_layout.setColumnStretch(1, 1)
-        label_alignment = Qt.AlignLeft | (Qt.AlignVCenter if label_vcenter else Qt.AlignTop)
-        row_layout.addWidget(label_block, 0, 0, label_alignment)
-        row_layout.addWidget(row_widget, 0, 1)
-        grid.addWidget(row_container, row, 0, 1, 2)
-        return row_container
-
-    def _build_setting_label_block(self, label, hint_label, extra_hint_labels):
-        block = QWidget()
-        block.setObjectName("SettingLabelBlock")
-        layout = QVBoxLayout(block)
-        layout.setContentsMargins(0, 10, 0, 10)
-        layout.setSpacing(0)
-        title_row = QHBoxLayout()
-        title_row.setContentsMargins(0, 0, 0, 0)
-        title_row.setSpacing(6)
-        title_row.addWidget(label, 1)
-        layout.addLayout(title_row)
-        self._bind_setting_detail(label, hint_label, extra_hint_labels)
-        return block
-
-    def _build_setting_detail_text(self, hint_label, extra_hint_labels):
-        message_parts = []
-        hint_text = hint_label.text().strip() if hint_label is not None else ""
-        if hint_text:
-            message_parts.append(hint_text)
-        for extra_hint in extra_hint_labels:
-            if extra_hint is None:
-                continue
-            extra_text = extra_hint.text().strip()
-            if extra_text:
-                message_parts.append(extra_text)
-        return "\n\n".join(message_parts)
-
-    def _bind_setting_detail(self, label, hint_label, extra_hint_labels):
-        self._setting_detail_bindings.append((label, hint_label, extra_hint_labels))
-        label.set_click_handler(
-            lambda l=label, h=hint_label, e=extra_hint_labels: self._activate_setting_detail(l, h, e)
-        )
-
-    def _activate_setting_detail(self, label, hint_label, extra_hint_labels):
-        detail_text = self._build_setting_detail_text(hint_label, extra_hint_labels)
-        if not detail_text:
-            return
-        self._active_setting_label = label
-        for current_label, _, _ in self._setting_detail_bindings:
-            current_label.setProperty("detailActive", current_label is label)
-            repolish_widget(current_label)
-        self.detail_popup.set_dark_mode(getattr(self.window(), "is_dark_mode", True))
-        self.detail_popup.show_for_label(label, label.text().strip(), detail_text)
-
-    def _build_setting_row(self, field):
-        row = QWidget()
-        row.setObjectName("SettingRow")
-        layout = QVBoxLayout(row)
-        layout.setContentsMargins(0, 8, 0, 8)
-        layout.setSpacing(0)
-        field_row = QHBoxLayout()
-        field_row.setContentsMargins(0, 0, 0, 0)
-        field_row.setSpacing(0)
-        stretch = 1 if field.sizePolicy().horizontalPolicy() == QSizePolicy.Expanding else 0
-        field_row.addWidget(field, stretch, Qt.AlignLeft)
-        if not stretch:
-            field_row.addStretch(1)
-        layout.addLayout(field_row)
-        return row
-
-    def configure_form_labels(self, texts):
-        self._current_texts = texts
-        self.section_search_title.setText(_fallback_text(texts, "settings_section_search", "检索与采样", "Search & Sampling"))
-        self.section_preview_title.setText(_fallback_text(texts, "settings_section_preview", "预览与缩略图", "Preview & Thumbnails"))
-        self.section_index_title.setText(_fallback_text(texts, "settings_section_indexing", "索引与分段", "Indexing & Chunking"))
-        self.section_runtime_title.setText(_fallback_text(texts, "settings_section_runtime", "运行时与资源", "Runtime & Resources"))
-        self.runtime_status_title.setText(_fallback_text(texts, "settings_runtime_status", "当前运行状态", "Current Runtime"))
-        self.label_fps.setText(texts["setting_fps"])
-        current_mode = self.get_sampling_fps_mode()
-        self.input_sampling_fps_mode.blockSignals(True)
-        self.input_sampling_fps_mode.clear()
-        self.input_sampling_fps_mode.addItem(texts["setting_sampling_fps_mode_fixed"], "fixed")
-        self.input_sampling_fps_mode.addItem(texts["setting_sampling_fps_mode_dynamic"], "dynamic")
-        restore_index = self.input_sampling_fps_mode.findData(current_mode)
-        self.input_sampling_fps_mode.setCurrentIndex(0 if restore_index < 0 else restore_index)
-        self.input_sampling_fps_mode.blockSignals(False)
-        self.input_sampling_fps_rules.setPlaceholderText(texts["setting_sampling_fps_rules_placeholder"])
-        self.btn_edit_sampling_rules.setText(texts["setting_sampling_fps_rules_edit"])
-        self.refresh_sampling_rules_summary()
-        self.label_top_k.setText(texts["setting_top_k"])
-        self.label_frame_neighbor_rerank_enabled.setText(texts["setting_frame_neighbor_rerank_enabled"])
-        self.label_frame_neighbor_rerank_top_n.setText(texts["setting_frame_neighbor_rerank_top_n"])
-        self.label_frame_neighbor_rerank_window.setText(texts["setting_frame_neighbor_rerank_window"])
-        self.label_preview_seconds.setText(texts["setting_preview_seconds"])
-        self.label_preview_width.setText(texts["setting_preview_width"])
-        self.label_preview_height.setText(texts["setting_preview_height"])
-        self.label_thumb_width.setText(texts["setting_thumb_width"])
-        self.label_thumb_height.setText(texts["setting_thumb_height"])
-        self.label_export_video_silent.setText(texts["setting_export_video_silent"])
-        self.label_remote_max_frames.setText(texts["setting_remote_max_frames"])
-        self.label_embedding_batch_size.setText(texts["setting_embedding_batch_size"])
-        self.label_similarity_threshold.setText(texts["setting_similarity_threshold"])
-        self.label_max_chunk_duration.setText(texts["setting_max_chunk_duration"])
-        self.label_min_chunk_size.setText(texts["setting_min_chunk_size"])
-        self.label_chunk_similarity_mode.setText(texts["setting_chunk_similarity_mode"])
-        self.label_prefer_gpu.setText(texts["setting_prefer_gpu"])
-        self.label_gpu_probe_unknown_keep_gpu.setText(texts["setting_gpu_probe_unknown_keep_gpu"])
-        self.label_auto_cleanup_missing_files.setText(texts["setting_auto_cleanup_missing_files"])
-        self.label_active_model_profile.setText(
-            _fallback_text(texts, "setting_active_model_profile", "当前模型", "Active Model")
-        )
-        current_chunk_similarity_mode = self.input_chunk_similarity_mode.currentData()
-        self.input_chunk_similarity_mode.blockSignals(True)
-        self.input_chunk_similarity_mode.clear()
-        self.input_chunk_similarity_mode.addItem(texts["setting_chunk_similarity_mode_chunk"], "chunk")
-        self.input_chunk_similarity_mode.addItem(texts["setting_chunk_similarity_mode_frame"], "frame")
-        restore_index = self.input_chunk_similarity_mode.findData(current_chunk_similarity_mode)
-        self.input_chunk_similarity_mode.setCurrentIndex(0 if restore_index < 0 else restore_index)
-        self.input_chunk_similarity_mode.blockSignals(False)
-        current_prefer_gpu = self.input_prefer_gpu.currentData()
-        self.input_prefer_gpu.blockSignals(True)
-        self.input_prefer_gpu.clear()
-        self.input_prefer_gpu.addItem(texts["setting_prefer_gpu_option_gpu"], True)
-        self.input_prefer_gpu.addItem(texts["setting_prefer_gpu_option_cpu"], False)
-        restore_index = self.input_prefer_gpu.findData(current_prefer_gpu)
-        self.input_prefer_gpu.setCurrentIndex(0 if restore_index < 0 else restore_index)
-        self.input_prefer_gpu.blockSignals(False)
-        current_gpu_probe_unknown_keep_gpu = self.input_gpu_probe_unknown_keep_gpu.currentData()
-        self.input_gpu_probe_unknown_keep_gpu.blockSignals(True)
-        self.input_gpu_probe_unknown_keep_gpu.clear()
-        self.input_gpu_probe_unknown_keep_gpu.addItem(texts["setting_gpu_probe_unknown_keep_gpu_option_off"], False)
-        self.input_gpu_probe_unknown_keep_gpu.addItem(texts["setting_gpu_probe_unknown_keep_gpu_option_on"], True)
-        restore_index = self.input_gpu_probe_unknown_keep_gpu.findData(current_gpu_probe_unknown_keep_gpu)
-        self.input_gpu_probe_unknown_keep_gpu.setCurrentIndex(0 if restore_index < 0 else restore_index)
-        self.input_gpu_probe_unknown_keep_gpu.blockSignals(False)
-        current_auto_cleanup_missing_files = self.input_auto_cleanup_missing_files.currentData()
-        self.input_auto_cleanup_missing_files.blockSignals(True)
-        self.input_auto_cleanup_missing_files.clear()
-        self.input_auto_cleanup_missing_files.addItem(texts["setting_auto_cleanup_missing_files_option_off"], False)
-        self.input_auto_cleanup_missing_files.addItem(texts["setting_auto_cleanup_missing_files_option_on"], True)
-        restore_index = self.input_auto_cleanup_missing_files.findData(current_auto_cleanup_missing_files)
-        self.input_auto_cleanup_missing_files.setCurrentIndex(0 if restore_index < 0 else restore_index)
-        self.input_auto_cleanup_missing_files.blockSignals(False)
-        current_export_video_silent = self.input_export_video_silent.currentData()
-        self.input_export_video_silent.blockSignals(True)
-        self.input_export_video_silent.clear()
-        self.input_export_video_silent.addItem(texts["setting_export_video_silent_option_off"], False)
-        self.input_export_video_silent.addItem(texts["setting_export_video_silent_option_on"], True)
-        restore_index = self.input_export_video_silent.findData(current_export_video_silent)
-        self.input_export_video_silent.setCurrentIndex(0 if restore_index < 0 else restore_index)
-        self.input_export_video_silent.blockSignals(False)
-        current_neighbor_rerank_enabled = self.input_frame_neighbor_rerank_enabled.currentData()
-        self.input_frame_neighbor_rerank_enabled.blockSignals(True)
-        self.input_frame_neighbor_rerank_enabled.clear()
-        self.input_frame_neighbor_rerank_enabled.addItem(texts["setting_frame_neighbor_rerank_enabled_option_off"], False)
-        self.input_frame_neighbor_rerank_enabled.addItem(texts["setting_frame_neighbor_rerank_enabled_option_on"], True)
-        restore_index = self.input_frame_neighbor_rerank_enabled.findData(current_neighbor_rerank_enabled)
-        self.input_frame_neighbor_rerank_enabled.setCurrentIndex(0 if restore_index < 0 else restore_index)
-        self.input_frame_neighbor_rerank_enabled.blockSignals(False)
-        self.label_data_root.setText(texts["setting_data_root"])
-        self.btn_browse_data_root.setText(texts["browse_data_root"])
-        self.btn_browse_ffmpeg_path.setText(texts["browse_file"])
-        self.btn_browse_model_dir.setText(texts["browse_folder"])
-        self.btn_migrate_model_dir.setText(texts["migrate_model_root"])
-        self.btn_download_runtime_resources.setText(texts.get("import_runtime_resources", texts["download_models"]))
-        self.btn_remove_model_profile.setText(
-            texts.get("remove_model_profile", "Remove Current Model")
-        )
-        self.btn_cleanup_old_data_root.setText(texts["cleanup_old_data_root"])
-        self.btn_cleanup_old_model_dir.setText(texts["cleanup_old_model_dir"])
-        self.label_ffmpeg_path.setText(texts["setting_ffmpeg_path"])
-        self.label_model_dir.setText(texts["setting_model_dir"])
-        self.hint_fps.setText(texts["setting_fps_hint"])
-        self.hint_sampling_fps_mode.setText(texts["setting_sampling_fps_mode_hint"])
-        self.hint_sampling_fps_rules.setText(texts["setting_sampling_fps_rules_hint"])
-        self.hint_sampling_fps_preview.setText(texts["setting_sampling_fps_preview"])
-        self.hint_top_k.setText(texts["setting_top_k_hint"])
-        self.hint_frame_neighbor_rerank_enabled.setText(texts["setting_frame_neighbor_rerank_enabled_hint"])
-        self.hint_frame_neighbor_rerank_top_n.setText(texts["setting_frame_neighbor_rerank_top_n_hint"])
-        self.hint_frame_neighbor_rerank_window.setText(texts["setting_frame_neighbor_rerank_window_hint"])
-        self.hint_preview_seconds.setText(texts["setting_preview_seconds_hint"])
-        self.hint_preview_width.setText(texts["setting_preview_width_hint"])
-        self.hint_preview_height.setText(texts["setting_preview_height_hint"])
-        self.hint_thumb_width.setText(texts["setting_thumb_width_hint"])
-        self.hint_thumb_height.setText(texts["setting_thumb_height_hint"])
-        self.hint_export_video_silent.setText(texts["setting_export_video_silent_hint"])
-        self.hint_remote_max_frames.setText(texts["setting_remote_max_frames_hint"])
-        self.hint_embedding_batch_size.setText(texts["setting_embedding_batch_size_hint"])
-        self.hint_similarity_threshold.setText(texts["setting_similarity_threshold_hint"])
-        self.hint_max_chunk_duration.setText(texts["setting_max_chunk_duration_hint"])
-        self.hint_min_chunk_size.setText(texts["setting_min_chunk_size_hint"])
-        self.hint_chunk_similarity_mode.setText(texts["setting_chunk_similarity_mode_hint"])
-        self.hint_prefer_gpu.setText(texts["setting_prefer_gpu_hint"])
-        self.hint_gpu_probe_unknown_keep_gpu.setText(texts["setting_gpu_probe_unknown_keep_gpu_hint"])
-        self.hint_auto_cleanup_missing_files.setText(texts["setting_auto_cleanup_missing_files_hint"])
-        self.hint_active_model_profile.setText(
-            _fallback_text(
-                texts,
-                "setting_active_model_profile_hint",
-                "切换后将使用该模型独立的数据目录与模型资源目录。",
-                "Switching changes both model resources and model-scoped data paths.",
-            )
-        )
-        self.hint_data_root.setText(texts["setting_data_root_hint"])
-        self.hint_ffmpeg_path.setText(texts["setting_ffmpeg_path_hint"])
-        self.hint_ffmpeg_active.setText(texts["setting_ffmpeg_active"].format(path=texts["setting_ffmpeg_unknown"]))
-        self.hint_inference_backend.setText(
-            texts["setting_inference_backend"].format(backend=texts["setting_inference_uninitialized"])
-        )
-        self.hint_inference_backend.setProperty("state", "neutral")
-        self.btn_show_runtime_diagnostics.setText(texts.get("setting_show_runtime_diagnostics", "Show diagnostics"))
-        self.hint_gpu_runtime.setText(texts["setting_gpu_runtime_link_only"])
-        self.hint_gpu_runtime.setOpenExternalLinks(True)
-        self.hint_gpu_runtime.setTextFormat(Qt.RichText)
-        self.hint_gpu_runtime.setTextInteractionFlags(Qt.TextBrowserInteraction)
-        self.hint_gpu_runtime.setVisible(False)
-        self.hint_model_dir.setText(texts["setting_model_dir_hint"])
-        self._update_sampling_mode_visibility()
-        self._update_frame_neighbor_rerank_visibility()
-        for label in [
-            self.label_fps,
-            self.label_top_k,
-            self.label_frame_neighbor_rerank_enabled,
-            self.label_frame_neighbor_rerank_top_n,
-            self.label_frame_neighbor_rerank_window,
-            self.label_preview_seconds,
-            self.label_preview_width,
-            self.label_preview_height,
-            self.label_thumb_width,
-            self.label_thumb_height,
-            self.label_export_video_silent,
-            self.label_remote_max_frames,
-            self.label_embedding_batch_size,
-            self.label_similarity_threshold,
-            self.label_max_chunk_duration,
-            self.label_min_chunk_size,
-            self.label_chunk_similarity_mode,
-            self.label_prefer_gpu,
-            self.label_gpu_probe_unknown_keep_gpu,
-            self.label_auto_cleanup_missing_files,
-            self.label_active_model_profile,
-            self.label_data_root,
-            self.label_ffmpeg_path,
-            self.label_model_dir,
-        ]:
-            self._configure_setting_label(label)
-            label.setProperty("detailActive", False)
-            repolish_widget(label)
-    def refresh_active_setting_detail(self):
-        if self._active_setting_label is not None:
-            for label, hint_label, extra_hint_labels in self._setting_detail_bindings:
-                if label is self._active_setting_label:
-                    self._activate_setting_detail(label, hint_label, extra_hint_labels)
-                    return
-        if self._setting_detail_bindings:
-            label, hint_label, extra_hint_labels = self._setting_detail_bindings[0]
-            self._activate_setting_detail(label, hint_label, extra_hint_labels)
-
-    def set_runtime_status_texts(self, backend_text, ffmpeg_text, data_text=""):
-        self.runtime_status_backend.setText(backend_text or "")
-        self.runtime_status_ffmpeg.setText(ffmpeg_text or "")
-        self.runtime_status_data.setText(data_text or "")
-
-
-class ResultTable(QTableWidget):
-    def __init__(self, parent=None):
-        super().__init__(0, 7, parent)
-        self.setObjectName("ResultTable")
-        self.setHorizontalHeaderLabels(["#", "Preview", "Video", "Range", "Mode", "Score", "Actions"])
-        self.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.verticalHeader().setVisible(False)
-        self.verticalHeader().setDefaultSectionSize(88)
-        self.setAlternatingRowColors(False)
-        self.setFocusPolicy(Qt.NoFocus)
-        self.setShowGrid(False)
-        self.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
-        self.horizontalHeader().setStretchLastSection(False)
-        self.setColumnWidth(0, 46)
-        self.setColumnWidth(1, 164)
-        self.setColumnWidth(3, 108)
-        self.setColumnWidth(4, 74)
-        self.setColumnWidth(5, 74)
-        self.setColumnWidth(6, 236)
-        self.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
-        self.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
-        self.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
-        self.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
-        self.horizontalHeader().setSectionResizeMode(5, QHeaderView.Fixed)
-        self.horizontalHeader().setSectionResizeMode(6, QHeaderView.Fixed)

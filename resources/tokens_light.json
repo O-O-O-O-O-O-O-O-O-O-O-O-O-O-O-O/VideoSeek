@@ -1,0 +1,31 @@
+{
+  "videoseek": {
+    "theme": {
+      "color": {
+        "window": "#f5f5f5",
+        "sidebar": "#ffffff",
+        "panel": "#ffffff",
+        "field": "#fafafa",
+        "headline": "#171717",
+        "text": "#404040",
+        "muted": "#737373",
+        "accent": "#3b82f6",
+        "accent-hover": "#2563eb",
+        "accent-soft": "#dbeafe",
+        "success": "#10b981",
+        "success-soft": "#d1fae5",
+        "warn": "#f59e0b",
+        "warn-soft": "#fef3c7",
+        "danger": "#ef4444",
+        "danger-soft": "#fee2e2",
+        "line": "#e5e5e5",
+        "line-strong": "#d4d4d4",
+        "button-soft": "#f5f5f5",
+        "button-soft-hover": "#ebebeb",
+        "track": "#e8e8e8",
+        "video-bg": "#ececec",
+        "inverse-text": "#ffffff"
+      }
+    }
+  }
+}

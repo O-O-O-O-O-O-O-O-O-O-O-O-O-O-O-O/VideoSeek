@@ -19,6 +19,7 @@ from src.utils import (
     validate_sampling_fps_rules_full_coverage,
 )
 from ui.widgets.layout import WINDOW_SIZES, apply_dialog_size
+from ui.widgets.scaffold import VSCard
 
 from .app_message import AppMessageDialog
 
@@ -41,8 +42,11 @@ class SamplingRulesDialog(QDialog):
         self.setModal(True)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
-        root.setSpacing(10)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(0)
+
+        shell = VSCard(margins=(16, 16, 16, 16), spacing=10)
+        root_layout = shell.content_layout
 
         title = QLabel(self.texts["sampling_rules_title"])
         title.setObjectName("DialogSectionTitle")
@@ -59,7 +63,7 @@ class SamplingRulesDialog(QDialog):
                 self.texts["sampling_rules_col_fps"],
             ]
         )
-        self.table.setAlternatingRowColors(True)
+        self.table.setAlternatingRowColors(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
@@ -87,11 +91,13 @@ class SamplingRulesDialog(QDialog):
         actions.addWidget(self.btn_cancel)
         actions.addWidget(self.btn_apply)
 
-        root.addWidget(title)
-        root.addWidget(hint)
-        root.addWidget(self.table, 1)
-        root.addLayout(toolbar)
-        root.addLayout(actions)
+        root_layout.addWidget(title)
+        root_layout.addWidget(hint)
+        root_layout.addWidget(self.table, 1)
+        root_layout.addLayout(toolbar)
+        root_layout.addLayout(actions)
+
+        root.addWidget(shell, 1)
 
         self.btn_add.clicked.connect(lambda: self._append_row("", "", ""))
         self.btn_remove.clicked.connect(self._remove_selected_row)
