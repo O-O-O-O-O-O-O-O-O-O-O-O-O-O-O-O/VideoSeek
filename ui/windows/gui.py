@@ -254,6 +254,7 @@ class MainWindow(
 
         self.library_page.btn_add_lib.clicked.connect(self.select_video_folder)
         self.library_page.btn_sync_db.clicked.connect(self.start_update_index)
+        self.library_page.btn_rebuild_index_vectors.clicked.connect(self.rebuild_index_from_vectors)
         self.library_page.btn_stop_index.clicked.connect(self.stop_update_index)
         self.library_page.btn_index_issues.clicked.connect(self.show_last_index_issue_details)
         self.library_page.btn_cleanup_missing.clicked.connect(self.cleanup_missing_library_vectors)
@@ -435,6 +436,7 @@ class MainWindow(
         self.library_page.table_title.setText(t["library_table_title"])
         self.library_page.btn_add_lib.setText(t["add_folder"])
         self.library_page.btn_sync_db.setText(t["update_index"])
+        self.library_page.btn_rebuild_index_vectors.setText(t["rebuild_index_vectors"])
         self.library_page.btn_stop_index.setText(t["stop"])
         self.library_page.btn_index_issues.setText(t["index_issues_button"])
         self.library_page.btn_cleanup_missing.setText(t["cleanup_missing_vectors"])
@@ -825,10 +827,14 @@ class MainWindow(
         self._shutdown_application(event)
 
     def _set_image_query(self, path, clear_text):
+        from src.core.image_io import pixmap_from_image_path
+
         self.current_img_path = path
-        self.search_page.img_label.setPixmap(
-            QPixmap(path).scaled(420, 280, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        )
+        pixmap = pixmap_from_image_path(path, 420, 280)
+        if pixmap.isNull():
+            self.search_page.lbl_status.setText(self.texts["image_load_failed"])
+            return
+        self.search_page.img_label.setPixmap(pixmap)
         if clear_text:
             self.search_page.text_search.clear()
         self.search_page.lbl_status.setText(self.texts["image_loaded"])

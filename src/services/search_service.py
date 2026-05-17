@@ -174,7 +174,13 @@ def build_query_vector(query_data, is_text=False):
     if is_text:
         query_vector = get_text_embedding(query_data)
     elif isinstance(query_data, str):
-        image = cv2.imdecode(np.fromfile(query_data, dtype=np.uint8), cv2.IMREAD_COLOR)
+        from src.core.image_io import load_image_bgr
+
+        image = load_image_bgr(query_data)
+        if image is None:
+            raise RuntimeError(
+                "Could not load query image. Use JPG/PNG/WEBP, or install pillow-heif for iPhone HEIC photos."
+            )
         query_vector = get_clip_embeddings_batch([image])
     else:
         query_vector = get_clip_embeddings_batch([query_data])

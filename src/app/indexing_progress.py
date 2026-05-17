@@ -89,6 +89,13 @@ def format_progress_text(text: str, texts: dict) -> str:
         return texts.get("index_progress_global", "Building global search index…")
     if stage == "reuse":
         return texts.get("index_progress_reuse", "{name}: reusing cached vectors").format(name=name)
+    if stage == "rebuild_index":
+        if file_total > 0:
+            return texts.get("index_progress_rebuild_index", "{current}/{total}: rebuilding index from vectors").format(
+                current=file_index,
+                total=file_total,
+            )
+        return texts.get("index_progress_rebuild_index_open", "Rebuilding index from cached vectors…")
 
     return text
 

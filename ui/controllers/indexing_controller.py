@@ -16,6 +16,7 @@ class IndexingController(QObject):
         self.worker = None
         self.current_target = None
         self.current_rebuild_global_assets = True
+        self.current_index_from_vectors_only = False
 
     def is_running(self):
         return self.worker is not None and self.worker.isRunning()
@@ -27,17 +28,20 @@ class IndexingController(QObject):
         cleanup_missing_entries=None,
         rebuild_global_assets=True,
         debug_failure="",
+        index_from_vectors_only=False,
     ):
         if self.is_running():
             return False
 
         self.current_target = target_lib
         self.current_rebuild_global_assets = bool(rebuild_global_assets)
+        self.current_index_from_vectors_only = bool(index_from_vectors_only)
         worker_kwargs = {
             "target_lib": target_lib,
             "force_cleanup_missing_files": force_cleanup_missing_files,
             "cleanup_missing_entries": cleanup_missing_entries,
             "rebuild_global_assets": rebuild_global_assets,
+            "index_from_vectors_only": index_from_vectors_only,
         }
         if debug_failure:
             worker_kwargs["debug_failure"] = debug_failure

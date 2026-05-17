@@ -53,7 +53,7 @@ class RemixMatchWorker(QThread):
     error_signal = Signal(str)
     stopped_signal = Signal()
     finished = Signal()
-    progress_signal = Signal(str)
+    progress_signal = Signal(int, str)
 
     def __init__(
         self,
@@ -90,9 +90,9 @@ class RemixMatchWorker(QThread):
 
     def run(self):
         try:
-            def on_progress(_pct, msg):
+            def on_progress(pct, msg):
                 if msg:
-                    self.progress_signal.emit(str(msg))
+                    self.progress_signal.emit(int(pct), str(msg))
 
             def should_stop():
                 return self._stop_requested
@@ -162,12 +162,14 @@ class IndexUpdateWorker(QThread):
         cleanup_missing_entries=None,
         rebuild_global_assets=True,
         debug_failure="",
+        index_from_vectors_only=False,
     ):
         super().__init__()
         self.target_lib = target_lib
         self.force_cleanup_missing_files = force_cleanup_missing_files
         self.cleanup_missing_entries = list(cleanup_missing_entries or [])
         self.rebuild_global_assets = bool(rebuild_global_assets)
+        self.index_from_vectors_only = bool(index_from_vectors_only)
         self.debug_failure = str(debug_failure or "").strip().lower()
         self._stop_requested = False
 
@@ -186,6 +188,23 @@ class IndexUpdateWorker(QThread):
             elif self.debug_failure == "system_oom":
                 os.environ["VIDEOSEEK_DEBUG_FORCE_SYSTEM_OOM"] = "1"
                 os.environ.pop("VIDEOSEEK_DEBUG_FORCE_GPU_OOM", None)
+            if self.index_from_vectors_only:
+                from src.workflows.update_video import rebuild_indexes_from_vectors_flow
+
+                logger.info(
+                    "Index rebuild-from-vectors worker starting: target_lib=%s",
+                    self.target_lib,
+                )
+                stats = rebuild_indexes_from_vectors_flow(
+                    target_lib=self.target_lib,
+                    progress_callback=lambda progress, text: self.progress_signal.emit(progress, text),
+                    should_stop_callback=lambda: self._stop_requested or self.isInterruptionRequested(),
+                    rebuild_global=self.rebuild_global_assets,
+                )
+                has_search_assets = bool(stats.get("global_built")) or int(stats.get("per_video_rebuilt", 0) or 0) > 0
+                self.finished_signal.emit(True, False, has_search_assets, issues)
+                return
+
             from src.core.clip_embedding import get_engine_runtime_status, prepare_inference_runtime
             from src.workflows.update_video import update_videos_flow
 

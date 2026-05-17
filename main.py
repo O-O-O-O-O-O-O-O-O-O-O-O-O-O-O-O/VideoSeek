@@ -12,10 +12,17 @@ if __name__ == "__main__":
 
     from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
     from src.app.config import set_startup_migration_summary
+    from src.app.single_instance import SingleInstanceServer, try_activate_existing_instance
     from src.storage.migration_runner import run_startup_migration
     from ui.windows.gui import MainWindow
 
     app = QApplication(sys.argv)
+
+    if try_activate_existing_instance():
+        logger.info("Another instance is running; activating existing window")
+        sys.exit(0)
+
+    single_instance_server = SingleInstanceServer(parent=app)
 
     # 设置全局字体
     font = app.font()
@@ -56,6 +63,7 @@ if __name__ == "__main__":
     set_startup_migration_summary(result)
 
     window = MainWindow()
+    single_instance_server.set_activate_handler(window._show_main_window_from_tray)
     if getattr(window, "startup_cancelled", False):
         logger.info("Startup cancelled before main window was shown")
         sys.exit(0)

@@ -64,10 +64,12 @@ class VectorNetworkGuiMixin:
         self._set_network_image_query(path)
 
     def _set_network_image_query(self, path):
+        from src.core.image_io import pixmap_from_image_path
+
         self.network_query_img_path = path
-        self.link_page.query_image_label.setPixmap(
-            QPixmap(path).scaled(420, 180, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        )
+        pixmap = pixmap_from_image_path(path, 420, 180)
+        if not pixmap.isNull():
+            self.link_page.query_image_label.setPixmap(pixmap)
         self.link_page.lbl_search_status.setText(self.texts["image_loaded"])
 
     def start_network_build(self):

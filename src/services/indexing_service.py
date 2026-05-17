@@ -160,17 +160,17 @@ def _emit_issue(issue_callback, library_path, video_rel_path, abs_path, action, 
     )
 
 
-def _ensure_video_index_file(video_id, vectors, config):
+def _ensure_video_index_file(video_id, vectors, config, *, force=False):
     model_dirs = get_local_model_asset_dirs(config=config)
     index_file = os.path.join(model_dirs["index_dir"], f"{video_id}_index.faiss")
-    if os.path.exists(index_file):
+    if os.path.exists(index_file) and not force:
         return False
     try:
         create_clip_index(vectors, index_file)
-        logger.info("Rebuilt missing per-video index for %s", video_id)
+        logger.info("Rebuilt per-video index for %s (force=%s)", video_id, bool(force))
         return True
     except Exception as exc:
-        logger.warning("Failed to rebuild missing per-video index for %s: %s", video_id, exc)
+        logger.warning("Failed to rebuild per-video index for %s: %s", video_id, exc)
         return False
 
 
@@ -788,6 +788,152 @@ def scan_target_libraries(
         lib_data["files"] = lib_files
 
     return failed_videos, search_assets_changed
+
+
+def _count_meta_video_entries(meta, target_lib=None):
+    target_key = canonicalize_library_path(target_lib) if target_lib else None
+    total = 0
+    for root_path, lib_data in (meta.get("libraries") or {}).items():
+        if target_key and canonicalize_library_path(root_path) != target_key:
+            continue
+        if not os.path.exists(root_path):
+            continue
+        total += len(lib_data.get("files") or {})
+    return max(total, 1)
+
+
+def rebuild_indexes_from_cached_vectors(
+    meta,
+    config,
+    *,
+    target_lib=None,
+    rebuild_per_video=True,
+    rebuild_global=True,
+    force_per_video=False,
+    include_all_libraries=True,
+    progress_callback=None,
+    should_stop_callback=None,
+):
+    """Rebuild FAISS indexes from on-disk vectors without FFmpeg or embedding."""
+    from src.app.indexing_progress import build_progress_token
+
+    stats = {
+        "per_video_rebuilt": 0,
+        "per_video_skipped": 0,
+        "per_video_failed": 0,
+        "per_video_no_vectors": 0,
+        "videos_with_vectors": 0,
+        "global_built": False,
+    }
+    target_key = canonicalize_library_path(target_lib) if target_lib else None
+    file_total = _count_meta_video_entries(meta, target_lib=target_lib)
+    file_index = 0
+
+    if progress_callback:
+        progress_callback(2, build_progress_token(stage="rebuild_index", file_index=0, file_total=file_total))
+
+    for root_path, lib_data in (meta.get("libraries") or {}).items():
+        if target_key and canonicalize_library_path(root_path) != target_key:
+            continue
+        if not os.path.exists(root_path):
+            continue
+
+        lib_files = lib_data.get("files", {})
+        for rel_path, info in list(lib_files.items()):
+            if should_stop_callback and should_stop_callback():
+                raise InterruptedError("Index rebuild from vectors stopped")
+            file_index += 1
+            abs_path = os.path.join(root_path, rel_path)
+            if not os.path.isfile(abs_path):
+                stats["per_video_no_vectors"] += 1
+                continue
+
+            saved = dict(info)
+            cached = _resolve_reusable_cached_vectors(abs_path, saved, config)
+            if cached is None:
+                saved_vid = str(saved.get("vid", "") or "").strip()
+                if saved_vid:
+                    vectors, timestamps, _ = _load_vectors_from_disk(saved_vid, config)
+                    if _has_usable_vectors(vectors, timestamps):
+                        cached = {
+                            "canonical_vid": saved_vid,
+                            "disk_vid": saved_vid,
+                            "vectors": vectors,
+                            "timestamps": timestamps,
+                        }
+            if cached is None:
+                stats["per_video_no_vectors"] += 1
+                if progress_callback:
+                    progress_callback(
+                        min(89, int(90 * file_index / file_total)),
+                        build_progress_token(
+                            stage="rebuild_index",
+                            video_name=os.path.basename(abs_path),
+                            file_index=file_index,
+                            file_total=file_total,
+                        ),
+                    )
+                continue
+
+            stats["videos_with_vectors"] += 1
+            video_id = cached["canonical_vid"]
+            vectors = cached["vectors"]
+            if str(info.get("vid", "") or "").strip() != video_id:
+                info["vid"] = video_id
+            if str(info.get("asset_state", "") or "").strip().lower() != "ready":
+                info["asset_state"] = "ready"
+
+            if rebuild_per_video:
+                if _ensure_video_index_file(video_id, vectors, config, force=force_per_video):
+                    stats["per_video_rebuilt"] += 1
+                else:
+                    index_file = os.path.join(
+                        get_local_model_asset_dirs(config=config)["index_dir"],
+                        f"{video_id}_index.faiss",
+                    )
+                    if os.path.isfile(index_file):
+                        stats["per_video_skipped"] += 1
+                    else:
+                        stats["per_video_failed"] += 1
+
+            if progress_callback:
+                progress_callback(
+                    min(89, int(90 * file_index / file_total)),
+                    build_progress_token(
+                        stage="rebuild_index",
+                        video_name=os.path.basename(abs_path),
+                        file_index=file_index,
+                        file_total=file_total,
+                    ),
+                )
+
+    if rebuild_global:
+        if progress_callback:
+            progress_callback(92, build_progress_token(stage="global"))
+        result = build_global_index(
+            meta,
+            config,
+            target_lib=target_lib,
+            include_all_libraries=include_all_libraries,
+            progress_callback=progress_callback,
+            should_stop_callback=should_stop_callback,
+        )
+        stats["global_built"] = result is not None
+
+    if progress_callback:
+        progress_callback(100, build_progress_token(stage="rebuild_index", file_index=file_total, file_total=file_total))
+
+    logger.info(
+        "Rebuild indexes from cached vectors finished: videos_with_vectors=%s per_video_rebuilt=%s "
+        "per_video_skipped=%s per_video_failed=%s per_video_no_vectors=%s global_built=%s",
+        stats["videos_with_vectors"],
+        stats["per_video_rebuilt"],
+        stats["per_video_skipped"],
+        stats["per_video_failed"],
+        stats["per_video_no_vectors"],
+        stats["global_built"],
+    )
+    return stats
 
 
 def clear_global_index(config):

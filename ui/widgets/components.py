@@ -507,6 +507,8 @@ class LibraryPage(QWidget):
         self.btn_add_lib.setObjectName("UpdateButton")
         self.btn_sync_db = QPushButton()
         self.btn_sync_db.setObjectName("PrimaryButton")
+        self.btn_rebuild_index_vectors = QPushButton()
+        self.btn_rebuild_index_vectors.setObjectName("GhostButton")
         self.btn_stop_index = QPushButton()
         self.btn_stop_index.setObjectName("DangerGhostButton")
         self.btn_stop_index.setEnabled(False)
@@ -526,6 +528,7 @@ class LibraryPage(QWidget):
         self.btn_debug_system_oom.setVisible(False)
         toolbar.addWidget(self.btn_add_lib)
         toolbar.addWidget(self.btn_sync_db)
+        toolbar.addWidget(self.btn_rebuild_index_vectors)
         toolbar.addSpacing(4)
         toolbar.addWidget(_toolbar_divider())
         toolbar.addSpacing(4)
@@ -765,6 +768,10 @@ class RemixMatchPage(QWidget):
         self.header = self.scaffold.header
         page_body = self.scaffold.content_layout
 
+        self.match_activity_notice, self.match_activity_text = make_runtime_banner()
+        self.match_activity_notice.hide()
+        page_body.addWidget(self.match_activity_notice)
+
         spin_w = max(104, COMPONENT_SIZES.get("settings_input_width", 116) + 8)
 
         def make_divider():
@@ -813,6 +820,12 @@ class RemixMatchPage(QWidget):
         action_row.addWidget(self.btn_stop)
         action_row.addWidget(self.btn_clear)
         action_row.addStretch(1)
+        self.match_progress = QProgressBar()
+        self.match_progress.setObjectName("ProgressBar")
+        self.match_progress.setTextVisible(False)
+        self.match_progress.setMinimum(0)
+        self.match_progress.setMaximum(100)
+        self.match_progress.hide()
         self.lbl_status = QLabel()
         self.lbl_status.setObjectName("StatusLabel")
         self.lbl_status.setWordWrap(True)
@@ -824,6 +837,7 @@ class RemixMatchPage(QWidget):
         source_layout.addWidget(self.mix_path_frame)
         source_layout.addWidget(make_divider())
         source_layout.addLayout(action_row)
+        source_layout.addWidget(self.match_progress)
         source_layout.addWidget(self.lbl_status)
 
         self.params_disclosure = RemixDisclosureHeader()

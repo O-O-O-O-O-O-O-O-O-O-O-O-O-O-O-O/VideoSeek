@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QFileDialog
 
 from src.app.config import load_config
+from src.app.remix_progress import format_progress_text
 from src.services.library_service import list_local_vector_details
 from src.services.remix_embedding_cache import get_remix_embed_cache_dir
 from src.utils import open_folder_in_explorer
@@ -91,6 +92,19 @@ class RemixGuiMixin:
         dlg.exec()
         QTimer.singleShot(0, self.remix_page.scope_tree.reflow_all_lib_trees)
 
+    def _hide_remix_match_activity(self):
+        self.remix_page.match_activity_notice.hide()
+        self.remix_page.match_progress.hide()
+
+    def _show_remix_match_activity(self, detail_text: str, *, overview: bool = False):
+        if overview:
+            text = self.texts.get("remix_match_activity_hint", detail_text)
+        else:
+            text = str(detail_text or "").strip() or self.texts.get("remix_progress", "")
+        self.remix_page.match_activity_text.setText(text)
+        self.remix_page.match_activity_notice.show()
+        self.remix_page.match_progress.show()
+
     def clear_remix_match_ui(self):
         from ui.threading_utils import shutdown_thread
 
@@ -102,6 +116,7 @@ class RemixGuiMixin:
         self.remix_page.btn_stop.setEnabled(False)
         self._stop_remix_thumbnail_loading()
         self.remix_page.result_view.clear()
+        self._hide_remix_match_activity()
         self.remix_page.lbl_status.setText(self.texts.get("ready", ""))
 
     def stop_remix_match(self):
@@ -126,7 +141,10 @@ class RemixGuiMixin:
         self._stop_remix_thumbnail_loading()
         self.remix_page.btn_run.setEnabled(False)
         self.remix_page.btn_stop.setEnabled(False)
-        self.remix_page.lbl_status.setText(self.texts["remix_progress"])
+        prepare_text = self.texts.get("remix_progress_prepare", self.texts["remix_progress"])
+        self.remix_page.lbl_status.setText(prepare_text)
+        self.remix_page.match_progress.setValue(0)
+        self._show_remix_match_activity(prepare_text, overview=True)
         self._remix_match_started_at = time.time()
 
         self.remix_worker = RemixMatchWorker(
@@ -151,19 +169,16 @@ class RemixGuiMixin:
         self.remix_worker.start()
         self.remix_page.btn_stop.setEnabled(True)
 
-    def _on_remix_match_progress(self, msg):
-        s = str(msg)
-        if s.startswith("remix_progress_frames:"):
-            self.remix_page.lbl_status.setText(self.texts["remix_progress"])
-        elif s == "remix_progress_cache_hit":
-            self.remix_page.lbl_status.setText(self.texts.get("remix_progress_cache_hit", self.texts["remix_progress"]))
-        elif s == "remix_progress_embed_done":
-            self.remix_page.lbl_status.setText(self.texts.get("remix_progress_embed_done", self.texts["remix_progress"]))
-        else:
-            self.remix_page.lbl_status.setText(self.texts["remix_progress"])
+    def _on_remix_match_progress(self, value, text):
+        formatted = format_progress_text(str(text), self.texts)
+        pct = max(0, min(100, int(value)))
+        self.remix_page.match_progress.setValue(pct)
+        self.remix_page.lbl_status.setText(formatted)
+        self._show_remix_match_activity(formatted, overview=False)
 
     def _on_remix_match_results(self, results):
         self.push_inference_status()
+        self._hide_remix_match_activity()
         result_view = self.remix_page.result_view
         if not results:
             result_view.clear()
@@ -187,12 +202,14 @@ class RemixGuiMixin:
 
     def _on_remix_match_error(self, error_text):
         self.push_inference_status()
+        self._hide_remix_match_activity()
         self.remix_page.lbl_status.setText(self.texts["remix_failed"])
         if str(error_text).strip():
             self.show_error_dialog(self.texts["remix_failed"], Exception(str(error_text)))
 
     def _on_remix_match_stopped(self):
         self.push_inference_status()
+        self._hide_remix_match_activity()
         self.remix_page.lbl_status.setText(self.texts["remix_stopped"])
 
     def _on_remix_match_finished(self):

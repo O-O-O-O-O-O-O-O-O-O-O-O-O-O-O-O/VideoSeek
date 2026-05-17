@@ -1,5 +1,6 @@
 """System tray: minimize on close and background indexing."""
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QApplication, QDialog, QStyle, QSystemTrayIcon
 
@@ -70,9 +71,16 @@ class TrayGuiMixin:
             self._show_main_window_from_tray()
 
     def _show_main_window_from_tray(self):
-        self.showNormal()
+        state = self.windowState()
+        minimized = bool(state & Qt.WindowState.WindowMinimized)
+        if minimized:
+            self.setWindowState(state & ~Qt.WindowState.WindowMinimized | Qt.WindowState.WindowActive)
+        self.show()
+        if not minimized:
+            self.showNormal()
         self.raise_()
         self.activateWindow()
+
     def _stop_indexing_from_tray(self):
         if getattr(self, "indexing_controller", None) and self.indexing_controller.request_stop():
             self.library_page.lbl_status.setText(self.texts.get("index_stop_requested", ""))

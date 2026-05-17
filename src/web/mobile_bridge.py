@@ -8,7 +8,7 @@ from typing import Callable, Optional
 
 try:
     from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-    from fastapi.responses import HTMLResponse, JSONResponse
+    from fastapi.responses import HTMLResponse, JSONResponse, Response
     from fastapi.staticfiles import StaticFiles
     import uvicorn
 except ImportError as exc:
@@ -108,7 +108,7 @@ _FALLBACK_UPLOAD_PAGE = """<!DOCTYPE html>
         <div id="placeholder">
             <div style="font-size: 40px;">&#128247;</div>
             <strong>Select one image</strong>
-            <div style="margin-top: 6px; color: #64748b; font-size: 13px;">JPG / PNG / WEBP / BMP</div>
+            <div style="margin-top: 6px; color: #64748b; font-size: 13px;">JPG / PNG / HEIC (iPhone)</div>
         </div>
         <img id="preview" alt="preview">
     </div>
@@ -124,66 +124,8 @@ _FALLBACK_UPLOAD_PAGE = """<!DOCTYPE html>
 
 <script>
 const uploadToken = "__UPLOAD_TOKEN__";
-
-function setStatus(message) {
-    document.getElementById("status").innerText = message || "";
-}
-
-function previewImage() {
-    const fileInput = document.getElementById("file-input");
-    const preview = document.getElementById("preview");
-    const placeholder = document.getElementById("placeholder");
-    if (!fileInput.files || !fileInput.files[0]) {
-        return;
-    }
-    const reader = new FileReader();
-    reader.onload = event => {
-        preview.src = event.target.result;
-        preview.style.display = "block";
-        placeholder.style.display = "none";
-    };
-    reader.readAsDataURL(fileInput.files[0]);
-    setStatus("");
-}
-
-async function submitImage() {
-    const fileInput = document.getElementById("file-input");
-    if (!fileInput.files || !fileInput.files[0]) {
-        alert("Select an image first.");
-        return;
-    }
-
-    const button = document.getElementById("submit-btn");
-    button.disabled = true;
-    button.innerText = "Sending...";
-    setStatus("Uploading image to the desktop...");
-
-    const formData = new FormData();
-    formData.append("token", uploadToken);
-    formData.append("file", fileInput.files[0]);
-
-    try {
-        const response = await fetch("/search", { method: "POST", body: formData });
-        const payload = await response.json();
-        if (!response.ok || !payload.ok) {
-            throw new Error(payload.detail || "Upload failed.");
-        }
-        setStatus(payload.message || "Image sent. Check VideoSeek on the desktop.");
-    } catch (error) {
-        setStatus(error.message || "Upload failed.");
-    } finally {
-        button.disabled = false;
-        button.innerText = "Send to desktop";
-    }
-}
-
-function clearFile() {
-    document.getElementById("file-input").value = "";
-    document.getElementById("preview").style.display = "none";
-    document.getElementById("placeholder").style.display = "block";
-    setStatus("");
-}
 </script>
+<script src="/static/mobile_upload.js"></script>
 </body>
 </html>
 """
@@ -229,6 +171,7 @@ class MobileBridgeService:
         else:
             logger.warning("Mobile bridge static directory missing: %s", self._static_dir)
         self.app.get("/", response_class=HTMLResponse)(self._index)
+        self.app.post("/preview")(self._preview)
         self.app.post("/search")(self._search)
         self.app.get("/health")(self._health)
 
@@ -304,6 +247,42 @@ class MobileBridgeService:
         logger.warning("Mobile bridge page missing, using embedded fallback: %s", self._template_path)
         return _FALLBACK_UPLOAD_PAGE
 
+    async def _save_upload_file(self, file: UploadFile) -> str:
+        if file is None or not file.filename:
+            raise HTTPException(status_code=400, detail="No image file received.")
+        content_type = str(file.content_type or "").lower()
+        if not content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="Only image uploads are supported.")
+        suffix = os.path.splitext(file.filename)[1] or ".jpg"
+        filename = f"{int(time.time() * 1000)}_{uuid.uuid4().hex}{suffix}"
+        target_path = os.path.join(self.upload_dir, filename)
+        ensure_folder_exists(target_path)
+        payload = await file.read()
+        with open(target_path, "wb") as handle:
+            handle.write(payload)
+        return target_path
+
+    async def _preview(
+        self,
+        token: str = Form(""),
+        file: UploadFile = File(...),
+    ):
+        if str(token).strip() != self.token:
+            raise HTTPException(status_code=403, detail="Invalid upload token.")
+        target_path = await self._save_upload_file(file)
+        try:
+            from src.core.image_io import encode_preview_jpeg
+
+            jpeg_bytes = encode_preview_jpeg(target_path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        finally:
+            try:
+                os.remove(target_path)
+            except OSError:
+                pass
+        return Response(content=jpeg_bytes, media_type="image/jpeg")
+
     async def _search(
         self,
         request: Request,
@@ -312,20 +291,18 @@ class MobileBridgeService:
     ):
         if str(token).strip() != self.token:
             raise HTTPException(status_code=403, detail="Invalid upload token.")
-        if file is None or not file.filename:
-            raise HTTPException(status_code=400, detail="No image file received.")
+        target_path = await self._save_upload_file(file)
 
-        content_type = str(file.content_type or "").lower()
-        if not content_type.startswith("image/"):
-            raise HTTPException(status_code=400, detail="Only image uploads are supported.")
+        from src.core.image_io import normalize_image_upload
 
-        suffix = os.path.splitext(file.filename)[1] or ".jpg"
-        filename = f"{int(time.time() * 1000)}_{uuid.uuid4().hex}{suffix}"
-        target_path = os.path.join(self.upload_dir, filename)
-        ensure_folder_exists(target_path)
-        payload = await file.read()
-        with open(target_path, "wb") as handle:
-            handle.write(payload)
+        try:
+            target_path = normalize_image_upload(target_path)
+        except ValueError as exc:
+            try:
+                os.remove(target_path)
+            except OSError:
+                pass
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         client_host = request.client.host if request.client else ""
         try:

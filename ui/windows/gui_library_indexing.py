@@ -96,6 +96,19 @@ class LibraryIndexingGuiMixin:
             rebuild_global_assets=rebuild_global_assets,
         )
 
+    def rebuild_index_from_vectors(self, target_lib=None):
+        if not self.show_confirm_dialog(
+            self.texts["rebuild_index_vectors_confirm_title"],
+            self.texts["rebuild_index_vectors_confirm_body"],
+        ):
+            return
+        self._start_index_update(
+            target_lib=target_lib,
+            force_cleanup_missing_files=False,
+            rebuild_global_assets=True,
+            index_from_vectors_only=True,
+        )
+
     def start_debug_gpu_oom(self):
         self._start_index_update(debug_failure="gpu_oom")
 
@@ -213,6 +226,7 @@ class LibraryIndexingGuiMixin:
         cleanup_missing_entries=None,
         rebuild_global_assets=True,
         debug_failure="",
+        index_from_vectors_only=False,
     ):
         try:
             if not self.check_runtime_resources():
@@ -227,18 +241,21 @@ class LibraryIndexingGuiMixin:
             self.library_page.btn_add_lib.setEnabled(False)
             self._apply_index_issue_button_state(False)
             self.library_page.btn_cleanup_missing.setEnabled(False)
+            self.library_page.btn_rebuild_index_vectors.setEnabled(False)
             if getattr(self, "_debug_tools_enabled", False):
                 self.library_page.btn_debug_gpu_oom.setEnabled(False)
                 self.library_page.btn_debug_system_oom.setEnabled(False)
             self.library_page.progress_bar.setVisible(True)
             self._last_index_issues = []
             self._last_index_issue_target = target_lib
+            self._last_index_from_vectors_only = bool(index_from_vectors_only)
             self.refresh_library_table()
             start_kwargs = {
                 "target_lib": target_lib,
                 "force_cleanup_missing_files": force_cleanup_missing_files,
                 "cleanup_missing_entries": cleanup_missing_entries,
                 "rebuild_global_assets": rebuild_global_assets,
+                "index_from_vectors_only": index_from_vectors_only,
             }
             if debug_failure:
                 start_kwargs["debug_failure"] = debug_failure
@@ -270,6 +287,7 @@ class LibraryIndexingGuiMixin:
         self.library_page.btn_stop_index.setVisible(False)
         self.library_page.btn_add_lib.setEnabled(True)
         self.library_page.btn_cleanup_missing.setEnabled(True)
+        self.library_page.btn_rebuild_index_vectors.setEnabled(True)
         if getattr(self, "_debug_tools_enabled", False):
             self.library_page.btn_debug_gpu_oom.setEnabled(True)
             self.library_page.btn_debug_system_oom.setEnabled(True)
@@ -283,7 +301,13 @@ class LibraryIndexingGuiMixin:
         if stopped:
             status_text = self.texts["index_stopped"]
         elif success:
-            if has_search_assets:
+            if getattr(self, "_last_index_from_vectors_only", False):
+                status_text = (
+                    self.texts["index_rebuild_vectors_done_single"]
+                    if target_lib
+                    else self.texts["index_rebuild_vectors_done"]
+                )
+            elif has_search_assets:
                 status_text = self.texts["index_updated_single"] if target_lib else self.texts["index_updated"]
             else:
                 status_text = self.texts["index_updated_empty_single"] if target_lib else self.texts["index_updated_empty"]

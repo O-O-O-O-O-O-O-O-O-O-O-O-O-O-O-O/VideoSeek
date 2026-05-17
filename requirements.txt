@@ -10,6 +10,7 @@ PySide6
 faiss-cpu
 numpy
 pillow
+pillow-heif
 # SigLIP ONNX profiles load tokenizer.json via Hugging Face tokenizers (default clip_onnx does not need this)
 tokenizers
 ftfy

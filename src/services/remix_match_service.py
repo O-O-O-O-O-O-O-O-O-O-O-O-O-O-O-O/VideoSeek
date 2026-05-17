@@ -11,6 +11,7 @@ import numpy as np
 
 from src.app.config import load_config
 from src.app.logging_utils import get_logger
+from src.app.remix_progress import RemixProgressReporter
 from src.core.clip_embedding import get_clip_embeddings_batch
 from src.core.extract_frames import stream_frames_with_ffmpeg
 from src.domain.remix_search_hit import RemixSearchHit
@@ -21,6 +22,7 @@ from src.services.remix_embedding_cache import (
 )
 from src.services.remix_match_aggregate import aggregate_match_points_to_segments, normalize_match_path
 from src.services.search_service import load_search_assets, _check_asset_profile_compatibility, _FRAME_ASSET_INFO
+from src.utils import get_video_duration_seconds
 
 logger = get_logger("remix_match_service")
 
@@ -37,6 +39,7 @@ def _raw_points_from_normalized_vectors(
     path_allowed,
     should_stop: Optional[Callable[[], bool]] = None,
     faiss_batch_rows: int = 256,
+    progress_reporter: Optional[RemixProgressReporter] = None,
 ) -> List[Tuple[str, float, float, float]]:
     """vectors: (N, D) float32, will be L2-normalized in place for FAISS.
 
@@ -61,6 +64,8 @@ def _raw_points_from_normalized_vectors(
         if should_stop is not None and should_stop():
             raise InterruptedError("Remix match stopped by user.")
         end = min(n, start + batch)
+        if progress_reporter is not None:
+            progress_reporter.emit("search", done=end, total=n)
         sub_v = vv[start:end]
         distances, indices = search_index.search(sub_v, top_k)
         for ii in range(sub_v.shape[0]):
@@ -147,6 +152,22 @@ def run_remix_match(
         raise RuntimeError("Invalid search index dimension.")
 
     profile_id = active_profile_id_for_cache(config=config)
+    mix_name = os.path.basename(mix_video_path)
+    expected_frames = 0
+    try:
+        duration = float(get_video_duration_seconds(mix_video_path) or 0.0)
+        if duration > 0:
+            expected_frames = max(1, int(duration * float(sample_fps)))
+    except Exception:
+        expected_frames = 0
+
+    reporter = (
+        RemixProgressReporter(progress_callback, video_name=mix_name)
+        if progress_callback is not None
+        else None
+    )
+    if reporter is not None:
+        reporter.emit("prepare", force=True)
 
     cached = try_load_remix_embedding_cache(
         mix_video_path,
@@ -162,8 +183,8 @@ def run_remix_match(
     if cached is not None:
         vectors, ref_times = cached
         processed = int(vectors.shape[0])
-        if progress_callback is not None:
-            progress_callback(0, "remix_progress_cache_hit")
+        if reporter is not None:
+            reporter.emit("cache_hit", done=processed, total=processed or expected_frames, force=True)
         raw_points = _raw_points_from_normalized_vectors(
             vectors,
             ref_times,
@@ -174,6 +195,7 @@ def run_remix_match(
             score_threshold=float(score_threshold),
             path_allowed=path_allowed,
             should_stop=should_stop,
+            progress_reporter=reporter,
         )
     else:
         frame_buf = []
@@ -205,6 +227,7 @@ def run_remix_match(
                     score_threshold=float(score_threshold),
                     path_allowed=path_allowed,
                     should_stop=should_stop,
+                    progress_reporter=reporter,
                 )
             )
             embed_chunks.append(vectors.copy())
@@ -212,20 +235,40 @@ def run_remix_match(
             processed += len(frame_buf)
             frame_buf = []
             ref_buf = []
+            if reporter is not None:
+                reporter.emit(
+                    "embed",
+                    done=processed,
+                    total=expected_frames or processed,
+                    force=True,
+                )
 
         for frame, ref_t in stream_frames_with_ffmpeg(mix_video_path, fps_override=float(sample_fps)):
             if should_stop is not None and should_stop():
                 raise InterruptedError("Remix match stopped by user.")
             frame_buf.append(frame)
             ref_buf.append(float(ref_t))
+            if reporter is not None and (
+                len(frame_buf) == 1
+                or len(frame_buf) >= embedding_batch_size
+                or (processed + len(frame_buf)) % 12 == 0
+            ):
+                reporter.emit(
+                    "extract",
+                    done=processed + len(frame_buf),
+                    total=expected_frames,
+                )
             if len(frame_buf) >= embedding_batch_size:
                 flush_batch()
-                if progress_callback is not None:
-                    progress_callback(0, f"remix_progress_frames:{processed}")
 
         flush_batch()
-        if progress_callback is not None:
-            progress_callback(50, "remix_progress_embed_done")
+        if reporter is not None:
+            reporter.emit(
+                "embed_done",
+                done=processed,
+                total=expected_frames or processed,
+                force=True,
+            )
 
         if embed_chunks:
             all_vectors = np.vstack(embed_chunks)
@@ -243,8 +286,8 @@ def run_remix_match(
             except Exception as exc:
                 logger.debug("Remix embed cache save skipped: %s", exc)
 
-    if progress_callback is not None:
-        progress_callback(99, "remix_progress_aggregate")
+    if reporter is not None:
+        reporter.emit("aggregate", force=True)
 
     if should_stop is not None and should_stop():
         raise InterruptedError("Remix match stopped by user.")

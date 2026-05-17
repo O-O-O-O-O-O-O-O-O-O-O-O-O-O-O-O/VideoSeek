@@ -121,9 +121,9 @@ class CLIPOnnxEngine:
         return out.reshape(1, 3, 224, 224)
 
     def imread_chinese(self, path):
-        with open(path, "rb") as handle:
-            data = handle.read()
-        return cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        from src.core.image_io import load_image_bgr
+
+        return load_image_bgr(path)
 
     def encode_images(self, frames):
         # Retained intentionally: this public image-encoding entrypoint is

@@ -52,6 +52,13 @@ If `vlc_lib/` is missing or incomplete, search/indexing may still work but previ
 - Preview matched clips inside the app.
 - **Remix source match:** align a mix-cut video to indexed originals (see `docs/remix_source_match.md`).
 
+## Upgrading from older builds (≥ 1.0.82)
+
+- First launch runs **schema** and **video index ID** migration (no re-encode: renames files under `vector/` / `index/` and updates `meta.json`).
+- If the startup dialog shows **[Video index IDs (no re-encode)]**, IDs are aligned; library sync logs should mention `reuse_cached_vectors`, not a full re-index.
+- If migration is still pending, **restart once**; see `docs/migration_forced_upgrade_checklist.md` §4.1.
+- Close action: **exit** or **minimize to tray** (settings); indexing in progress prompts separately.
+
 ## Tests
 
 Focused subset:

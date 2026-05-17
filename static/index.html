@@ -162,7 +162,7 @@
             <div id="placeholder">
                 <div style="font-size: 40px;">&#128247;</div>
                 <strong>选择一张图片</strong>
-                <span>支持 JPG / PNG / WEBP / BMP</span>
+                <span>支持 JPG / PNG / HEIC（iPhone 由电脑生成预览）</span>
             </div>
             <img id="preview" alt="preview">
         </div>
@@ -179,68 +179,7 @@
 
 <script>
     const uploadToken = "__UPLOAD_TOKEN__";
-
-    function setStatus(message) {
-        document.getElementById("status").innerText = message || "";
-    }
-
-    function previewImage() {
-        const fileInput = document.getElementById("file-input");
-        const preview = document.getElementById("preview");
-        const placeholder = document.getElementById("placeholder");
-        if (!fileInput.files || !fileInput.files[0]) {
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = event => {
-            preview.src = event.target.result;
-            preview.style.display = "block";
-            placeholder.style.display = "none";
-        };
-        reader.readAsDataURL(fileInput.files[0]);
-        setStatus("");
-    }
-
-    async function submitImage() {
-        const fileInput = document.getElementById("file-input");
-        if (!fileInput.files || !fileInput.files[0]) {
-            alert("请先选择图片");
-            return;
-        }
-
-        const button = document.getElementById("submit-btn");
-        button.disabled = true;
-        button.innerText = "发送中...";
-        setStatus("图片正在发送到电脑端...");
-
-        const formData = new FormData();
-        formData.append("token", uploadToken);
-        formData.append("file", fileInput.files[0]);
-
-        try {
-            const response = await fetch("/search", {
-                method: "POST",
-                body: formData
-            });
-            const payload = await response.json();
-            if (!response.ok || !payload.ok) {
-                throw new Error(payload.detail || "上传失败");
-            }
-            setStatus(payload.message || "已发送到电脑端，请查看 VideoSeek 搜索结果。");
-        } catch (error) {
-            setStatus(error.message || "连接失败，请确认和电脑在同一局域网。");
-        } finally {
-            button.disabled = false;
-            button.innerText = "发送并搜索";
-        }
-    }
-
-    function clearFile() {
-        document.getElementById("file-input").value = "";
-        document.getElementById("preview").style.display = "none";
-        document.getElementById("placeholder").style.display = "block";
-        setStatus("");
-    }
 </script>
+<script src="/static/mobile_upload.js"></script>
 </body>
 </html>

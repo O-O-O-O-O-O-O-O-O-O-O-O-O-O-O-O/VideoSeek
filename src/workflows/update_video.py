@@ -8,6 +8,7 @@ from src.services.indexing_service import (
     build_global_index,
     cleanup_missing_library_files,
     clear_global_index,
+    rebuild_indexes_from_cached_vectors,
     scan_target_libraries,
 )
 from src.services.library_service import mark_global_index_fresh, mark_global_index_stale
@@ -228,6 +229,55 @@ def update_videos_flow(
         time.perf_counter() - flow_start,
     )
     return result
+
+def rebuild_indexes_from_vectors_flow(
+    target_lib=None,
+    progress_callback=None,
+    should_stop_callback=None,
+    *,
+    rebuild_per_video=True,
+    rebuild_global=True,
+    force_per_video=False,
+    include_all_libraries=True,
+):
+    """Rebuild per-video and/or global FAISS assets from existing vector files only."""
+    flow_start = time.perf_counter()
+    logger.info(
+        "Starting index rebuild from cached vectors%s",
+        f" for {target_lib}" if target_lib else "",
+    )
+    config = load_config()
+    meta = load_model_metadata(config=config)
+    _set_library_index_state(meta, "partial", target_lib=target_lib)
+    save_model_metadata(meta, config=config)
+
+    stats = rebuild_indexes_from_cached_vectors(
+        meta,
+        config,
+        target_lib=target_lib,
+        rebuild_per_video=rebuild_per_video,
+        rebuild_global=rebuild_global,
+        force_per_video=force_per_video,
+        include_all_libraries=include_all_libraries,
+        progress_callback=progress_callback,
+        should_stop_callback=should_stop_callback,
+    )
+
+    _finalize_library_index_state(meta, target_lib=target_lib)
+    if rebuild_global:
+        if stats.get("global_built"):
+            mark_global_index_fresh(meta=meta)
+        else:
+            mark_global_index_stale(meta=meta)
+    save_model_metadata(meta, config=config)
+
+    logger.info(
+        "Index rebuild from vectors finished in %.2fs: %s",
+        time.perf_counter() - flow_start,
+        stats,
+    )
+    return stats
+
 
 def delete_physical_video_data(video_id, config):
     if not video_id:
