@@ -246,6 +246,8 @@ class SettingsGuiMixin:
             break
 
     def save_settings(self):
+        if not self._ensure_startup_migration_idle("feature_settings"):
+            return
         try:
             config = load_config()
             current_data_root = get_configured_data_root(config)

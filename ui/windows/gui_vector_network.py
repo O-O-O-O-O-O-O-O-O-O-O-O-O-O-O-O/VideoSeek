@@ -28,6 +28,8 @@ class VectorNetworkGuiMixin:
         self.switch_page("link")
 
     def start_network_search(self):
+        if not self._ensure_startup_migration_idle("feature_network_search"):
+            return
         if not self.check_runtime_resources():
             self.link_page.lbl_search_status.setText(self.texts["model_features_disabled"])
             return
@@ -73,6 +75,8 @@ class VectorNetworkGuiMixin:
         self.link_page.lbl_search_status.setText(self.texts["image_loaded"])
 
     def start_network_build(self):
+        if not self._ensure_startup_migration_idle("feature_network_build"):
+            return
         raw_text = self.link_page.build_links_input.toPlainText().strip()
         links = re.findall(r"https?://[^\s,]+", raw_text)
         if not links:

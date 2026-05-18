@@ -15,7 +15,12 @@ from src.storage.config_store import (
     get_model_profile_storage_paths,
     get_remote_model_asset_paths,
 )
-from src.storage.video_id_migration import VIDEO_ID_FORMAT_VERSION, migrate_legacy_video_ids
+from src.storage.video_id_migration import (
+    VIDEO_ID_FORMAT_VERSION,
+    _legacy_video_ids_pending_fast,
+    _trust_fast_video_id_check,
+    migrate_legacy_video_ids,
+)
 
 logger = get_logger("migration_runner")
 TARGET_SCHEMA_VERSION = 2
@@ -47,26 +52,54 @@ def _read_schema_version(value, default=1):
         return default
 
 
+def _read_migration_state(config):
+    state_file = _migration_state_file(config)
+    if not os.path.exists(state_file):
+        return {}
+    try:
+        with open(state_file, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _ensure_expected_asset_dirs(config):
+    """Create empty asset folders so a completed migration is not re-run after missing dirs."""
+    try:
+        model_dirs = get_local_model_asset_dirs(config=config)
+        global_paths = get_global_model_asset_paths(config=config)
+        remote_paths = get_remote_model_asset_paths(config=config)
+        for path in (
+            model_dirs.get("vector_dir"),
+            model_dirs.get("index_dir"),
+            model_dirs.get("base_dir"),
+            global_paths.get("global_dir"),
+            remote_paths.get("remote_dir"),
+            os.path.dirname(model_dirs.get("meta_file", "") or ""),
+        ):
+            if path:
+                os.makedirs(path, exist_ok=True)
+    except Exception:
+        logger.warning("Failed to ensure expected asset directories exist", exc_info=True)
+
+
 def _already_migrated(config, meta):
     config_version = _read_schema_version(config.get("schema_version"), default=1)
     meta_version = _read_schema_version(meta.get("schema_version"), default=1)
     if not (config_version >= TARGET_SCHEMA_VERSION and meta_version >= TARGET_SCHEMA_VERSION):
         return False
-    state_file = _migration_state_file(config)
-    if not os.path.exists(state_file):
-        return False
-    try:
-        with open(state_file, "r", encoding="utf-8") as handle:
-            state = json.load(handle)
-    except Exception:
-        return False
+    state = _read_migration_state(config)
     if not (bool(state.get("completed")) and _read_schema_version(state.get("schema_version"), default=0) >= TARGET_SCHEMA_VERSION):
         return False
+    _ensure_expected_asset_dirs(config)
     try:
         model_dirs = get_local_model_asset_dirs(config=config)
     except Exception:
         return False
     if not (os.path.isdir(model_dirs["vector_dir"]) and os.path.isdir(model_dirs["index_dir"])):
+        return False
+    if not os.path.exists(model_dirs["meta_file"]):
         return False
     try:
         global_paths = get_global_model_asset_paths(config=config)
@@ -75,7 +108,7 @@ def _already_migrated(config, meta):
     if not os.path.isdir(global_paths["global_dir"]):
         return False
     remote_paths = get_remote_model_asset_paths(config=config)
-    if not (os.path.isdir(remote_paths["remote_dir"]) and os.path.exists(model_dirs["meta_file"])):
+    if not os.path.isdir(remote_paths["remote_dir"]):
         return False
     resource_dir = get_active_model_resource_dir(config=config)
     if not os.path.isdir(resource_dir):
@@ -529,22 +562,87 @@ def _write_migration_state(config, backup_dir):
         json.dump(payload, handle, ensure_ascii=False, indent=2)
 
 
-def run_startup_migration(progress_callback=None):
-    _emit(progress_callback, 3, "正在检查数据结构版本")
-    config = load_config()
+def _load_meta_for_startup(config):
     config_version = _read_schema_version(config.get("schema_version"), default=1)
     if config_version >= TARGET_SCHEMA_VERSION:
         model_paths = get_model_profile_storage_paths(config=config)
         existing_meta_file = model_paths["meta_file"]
         if not os.path.exists(existing_meta_file):
             legacy_meta_file = str(config.get("meta_file", "") or "").strip()
-            existing_meta_file = legacy_meta_file if legacy_meta_file and os.path.exists(legacy_meta_file) else model_paths["meta_file"]
+            existing_meta_file = (
+                legacy_meta_file if legacy_meta_file and os.path.exists(legacy_meta_file) else model_paths["meta_file"]
+            )
     else:
         existing_meta_file = str(config.get("meta_file", "") or "").strip()
         if not existing_meta_file:
             data_root = get_configured_data_root(config)
             existing_meta_file = os.path.join(data_root, "data", "meta.json")
-    meta = load_metadata(existing_meta_file)
+    return load_metadata(existing_meta_file)
+
+
+def needs_background_startup_migration(config=None):
+    """True when startup must run full migration off the UI thread."""
+    runtime_config = config or load_config()
+    meta = _load_meta_for_startup(runtime_config)
+    if not _already_migrated(runtime_config, meta):
+        return True
+    if not _trust_fast_video_id_check(runtime_config):
+        return True
+    return bool(_legacy_video_ids_pending_fast(runtime_config, verify_saved_ids=False))
+
+
+def run_startup_migration_quick(progress_callback=None):
+    """Fast synchronous checks; defer heavy work when needs_background_startup_migration()."""
+    _emit(progress_callback, 3, "正在快速检查数据结构")
+    config = load_config()
+    if needs_background_startup_migration(config):
+        logger.info("Startup migration deferred to background worker")
+        config_version = _read_schema_version(config.get("schema_version"), default=1)
+        return {
+            "needs_background": True,
+            "migrated": False,
+            "schema_version": max(config_version, 1),
+            "backup_dir": "",
+            "migrated_local_payloads": 0,
+            "migrated_local_asset_files": 0,
+            "migrated_global_payloads": 0,
+            "migrated_remote_payloads": 0,
+            "migrated_video_ids": 0,
+            "failed_video_ids": 0,
+            "video_id_format": int(_read_migration_state(config).get("video_id_format", 0) or 0),
+            "pending_legacy": False,
+        }
+
+    meta = _load_meta_for_startup(config)
+    try:
+        ensure_default_clip_manifest(config=config)
+    except Exception:
+        logger.warning("Failed to backfill default CLIP model manifest on quick startup check", exc_info=True)
+    logger.info("Startup migration quick path: schema_version=%s", TARGET_SCHEMA_VERSION)
+    latest_config = load_config()
+    _emit(progress_callback, 8, "正在检查视频索引 ID")
+    video_id_result = migrate_legacy_video_ids(config=latest_config, progress_callback=progress_callback)
+    _emit(progress_callback, 100, "数据结构检查完成")
+    return {
+        "needs_background": False,
+        "migrated": bool(video_id_result.get("migrated")),
+        "schema_version": TARGET_SCHEMA_VERSION,
+        "backup_dir": "",
+        "migrated_local_payloads": 0,
+        "migrated_local_asset_files": 0,
+        "migrated_global_payloads": 0,
+        "migrated_remote_payloads": 0,
+        "migrated_video_ids": int(video_id_result.get("migrated_video_ids", 0) or 0),
+        "failed_video_ids": int(video_id_result.get("failed_video_ids", 0) or 0),
+        "video_id_format": int(video_id_result.get("video_id_format", VIDEO_ID_FORMAT_VERSION)),
+        "pending_legacy": bool(video_id_result.get("pending_legacy")),
+    }
+
+
+def run_startup_migration(progress_callback=None):
+    _emit(progress_callback, 3, "正在检查数据结构版本")
+    config = load_config()
+    meta = _load_meta_for_startup(config)
 
     if _already_migrated(config, meta):
         try:
@@ -569,9 +667,21 @@ def run_startup_migration(progress_callback=None):
             "pending_legacy": bool(video_id_result.get("pending_legacy")),
         }
 
-    _emit(progress_callback, 12, "正在备份现有数据")
-    backup_dir = _create_backup(config)
-    logger.info("Created pre-migration backup: %s", backup_dir)
+    prior_state = _read_migration_state(config)
+    prior_schema_done = bool(prior_state.get("completed")) and _read_schema_version(
+        prior_state.get("schema_version"), default=0
+    ) >= TARGET_SCHEMA_VERSION
+    if prior_schema_done:
+        backup_dir = str(prior_state.get("backup_dir", "") or "").strip()
+        logger.info(
+            "Skipping pre-migration backup: schema migration already completed (backup_dir=%s)",
+            backup_dir or "n/a",
+        )
+        _emit(progress_callback, 12, "正在升级配置结构（跳过重复备份）")
+    else:
+        _emit(progress_callback, 12, "正在备份现有数据")
+        backup_dir = _create_backup(config)
+        logger.info("Created pre-migration backup: %s", backup_dir)
 
     _emit(progress_callback, 30, "正在升级配置结构")
     normalized_config = _normalize_config_v2(config)

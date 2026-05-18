@@ -60,10 +60,12 @@ from ui.windows.gui_runtime import RuntimeGuiMixin
 from ui.windows.gui_model_packages import ModelPackagesGuiMixin
 from ui.windows.gui_ui_state import AppUiStateMixin
 from ui.windows.gui_tray import TrayGuiMixin
+from ui.windows.gui_startup_migration import StartupMigrationGuiMixin
 
 
 class MainWindow(
     QMainWindow,
+    StartupMigrationGuiMixin,
     TrayGuiMixin,
     RemixGuiMixin,
     SettingsGuiMixin,
@@ -80,6 +82,7 @@ class MainWindow(
 
     def __init__(self):
         super().__init__()
+        self._init_startup_migration_state()
         self.startup_cancelled = False
         self._close_when_indexing_stops = False
         self.current_img_path = None
@@ -150,14 +153,12 @@ class MainWindow(
         self._bind_settings_dirty_tracking()
         self.load_settings_values()
         self._set_settings_dirty(False)
-        self._show_startup_migration_notice()
         self.check_runtime_resources(show_dialog=False)
         if self.startup_cancelled:
             self.search_controller.shutdown()
             self.preview_controller.shutdown()
             return
         self.apply_theme()
-        QTimer.singleShot(0, self._finish_startup_sequence)
 
     def init_ui(self):
         self.setWindowTitle(f"VideoSeek v{get_app_version()}")
@@ -500,6 +501,8 @@ class MainWindow(
         ).exec()
 
     def start_search(self):
+        if not self._ensure_startup_migration_idle("feature_search"):
+            return
         if not self.check_runtime_resources():
             self.search_page.lbl_status.setText(self.texts["model_features_disabled"])
             return

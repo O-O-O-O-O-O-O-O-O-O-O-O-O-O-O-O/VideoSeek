@@ -25,6 +25,26 @@ from ui.playback.vlc_player import warmup_vlc_runtime
 logger = get_logger("workers")
 
 
+class StartupMigrationWorker(QThread):
+    progress_signal = Signal(int, str)
+    finished_signal = Signal(dict)
+    error_signal = Signal(str)
+
+    def run(self):
+        from src.storage.migration_runner import run_startup_migration
+
+        try:
+            result = run_startup_migration(
+                progress_callback=lambda value, text: self.progress_signal.emit(int(value), str(text)),
+            )
+            payload = dict(result or {})
+            payload["needs_background"] = False
+            self.finished_signal.emit(payload)
+        except Exception as exc:
+            logger.exception("Background startup migration failed")
+            self.error_signal.emit(str(exc).strip() or repr(exc))
+
+
 class SearchWorker(QThread):
     result_ready = Signal(list)
     error_signal = Signal(str)

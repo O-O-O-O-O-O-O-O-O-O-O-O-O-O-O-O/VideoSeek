@@ -14,6 +14,7 @@ from src.utils import get_legacy_video_hash, get_video_hash
 logger = get_logger("video_id_migration")
 
 VIDEO_ID_FORMAT_VERSION = 2
+VIDEO_ID_PENDING_CHECK_PASSED = "passed"
 
 
 def _load_vectors_for_migration(vector_file):
@@ -72,8 +73,117 @@ def _iter_meta_file_entries(meta):
     return entries
 
 
-def legacy_video_ids_pending(config=None):
-    """True while on-disk vectors still use pre-v2 ids that meta/hash no longer match."""
+def _read_video_id_format(config):
+    state = _read_migration_state(config or load_config())
+    try:
+        return int(state.get("video_id_format", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _vector_ids_on_disk(vector_dir):
+    ids = set()
+    if not vector_dir or not os.path.isdir(vector_dir):
+        return ids
+    for name in os.listdir(vector_dir):
+        if name.lower().endswith("_vectors.npy"):
+            video_id = name[: -len("_vectors.npy")]
+            if video_id:
+                ids.add(video_id)
+    return ids
+
+
+def _entry_has_legacy_video_ids(root_path, rel_path, info, vector_dir):
+    """Check one meta entry; may read up to 20 MiB from the video file."""
+    abs_path = os.path.join(root_path, rel_path)
+    if not os.path.isfile(abs_path):
+        return False
+    try:
+        new_vid = get_video_hash(abs_path)
+        legacy_vid = get_legacy_video_hash(abs_path)
+    except OSError:
+        return False
+    if legacy_vid == new_vid:
+        return False
+
+    saved_vid = str(info.get("vid", "") or "").strip()
+    legacy_vectors = os.path.isfile(_legacy_vector_file(vector_dir, legacy_vid))
+    new_vectors = os.path.isfile(_legacy_vector_file(vector_dir, new_vid))
+    saved_vectors = os.path.isfile(_legacy_vector_file(vector_dir, saved_vid)) if saved_vid else False
+
+    if saved_vid and saved_vid != new_vid and legacy_vectors:
+        if not legacy_vid or saved_vid in {legacy_vid, new_vid}:
+            return True
+        if saved_vectors:
+            return True
+
+    if saved_vid == new_vid and legacy_vectors and not new_vectors:
+        return True
+    if saved_vid == new_vid and not saved_vectors and legacy_vectors:
+        return True
+
+    if legacy_vectors and not new_vectors:
+        return True
+    return False
+
+
+def _trust_fast_video_id_check(config):
+    state = _read_migration_state(config or load_config())
+    return str(state.get("video_id_pending_check", "") or "").strip() == VIDEO_ID_PENDING_CHECK_PASSED
+
+
+def _mark_video_id_pending_check_passed(config):
+    _write_migration_state_patch(
+        config or load_config(),
+        {"video_id_pending_check": VIDEO_ID_PENDING_CHECK_PASSED},
+    )
+
+
+def _legacy_video_ids_pending_fast_for_root(meta, vector_dir, *, verify_saved_ids=False):
+    """Disk/meta check; hashes only missing-vector entries, or saved ids when verify_saved_ids."""
+    valid_ids = _collect_valid_video_ids(meta)
+    disk_ids = _vector_ids_on_disk(vector_dir)
+    for disk_id in disk_ids:
+        if disk_id not in valid_ids and len(disk_id) > 10:
+            return True
+
+    for root_path, rel_path, info in _iter_meta_file_entries(meta):
+        saved_vid = str(info.get("vid", "") or "").strip()
+        abs_path = os.path.join(root_path, rel_path)
+        if not saved_vid or not os.path.isfile(abs_path):
+            continue
+        saved_vectors = _legacy_vector_file(vector_dir, saved_vid)
+        if os.path.isfile(saved_vectors):
+            if not verify_saved_ids:
+                continue
+            try:
+                new_vid = get_video_hash(abs_path)
+            except OSError:
+                continue
+            if saved_vid != new_vid:
+                return True
+            continue
+        if _entry_has_legacy_video_ids(root_path, rel_path, info, vector_dir):
+            return True
+    return False
+
+
+def _legacy_video_ids_pending_fast(config, *, verify_saved_ids=False):
+    for storage_root in iter_model_asset_storage_roots(config):
+        meta_file = storage_root["meta_file"]
+        if not os.path.isfile(meta_file):
+            continue
+        meta = load_metadata(meta_file)
+        if _legacy_video_ids_pending_fast_for_root(
+            meta,
+            storage_root["vector_dir"],
+            verify_saved_ids=verify_saved_ids,
+        ):
+            return True
+    return False
+
+
+def _legacy_video_ids_pending_full(config):
     for storage_root in iter_model_asset_storage_roots(config):
         meta_file = storage_root["meta_file"]
         if not os.path.isfile(meta_file):
@@ -84,15 +194,24 @@ def legacy_video_ids_pending(config=None):
     return False
 
 
+def legacy_video_ids_pending(config=None):
+    """True while on-disk vectors still use pre-v2 ids that meta/hash no longer match."""
+    runtime_config = config or load_config()
+    trusted = _trust_fast_video_id_check(runtime_config)
+    verify_saved_ids = not trusted
+    if trusted or _read_video_id_format(runtime_config) >= VIDEO_ID_FORMAT_VERSION:
+        if _legacy_video_ids_pending_fast(runtime_config, verify_saved_ids=verify_saved_ids):
+            return True
+        if trusted:
+            return False
+    return _legacy_video_ids_pending_full(runtime_config)
+
+
 def video_id_migration_completed(config=None):
     runtime_config = config or load_config()
-    if legacy_video_ids_pending(runtime_config):
+    if _read_video_id_format(runtime_config) < VIDEO_ID_FORMAT_VERSION:
         return False
-    state = _read_migration_state(runtime_config)
-    try:
-        return int(state.get("video_id_format", 0) or 0) >= VIDEO_ID_FORMAT_VERSION
-    except (TypeError, ValueError):
-        return False
+    return not legacy_video_ids_pending(runtime_config)
 
 
 def iter_model_asset_storage_roots(config=None):
@@ -188,37 +307,7 @@ def _legacy_vector_file(vector_dir, video_id):
 def _root_has_legacy_video_ids(entries, vector_dir):
     """True if on-disk vectors still use pre-v2 ids (including meta already updated)."""
     for root_path, rel_path, info in entries:
-        abs_path = os.path.join(root_path, rel_path)
-        if not os.path.isfile(abs_path):
-            continue
-        try:
-            new_vid = get_video_hash(abs_path)
-            legacy_vid = get_legacy_video_hash(abs_path)
-        except OSError:
-            continue
-        if legacy_vid == new_vid:
-            continue
-
-        saved_vid = str(info.get("vid", "") or "").strip()
-        legacy_vectors = os.path.isfile(_legacy_vector_file(vector_dir, legacy_vid))
-        new_vectors = os.path.isfile(_legacy_vector_file(vector_dir, new_vid))
-        saved_vectors = os.path.isfile(_legacy_vector_file(vector_dir, saved_vid)) if saved_vid else False
-
-        # Meta still references a legacy id with matching on-disk vectors.
-        if saved_vid and saved_vid != new_vid and legacy_vectors:
-            if not legacy_vid or saved_vid in {legacy_vid, new_vid}:
-                return True
-            if saved_vectors:
-                return True
-
-        # Meta was updated to the new id but assets were never renamed.
-        if saved_vid == new_vid and legacy_vectors and not new_vectors:
-            return True
-        if saved_vid == new_vid and not saved_vectors and legacy_vectors:
-            return True
-
-        # Orphan legacy vectors without a new-format counterpart.
-        if legacy_vectors and not new_vectors:
+        if _entry_has_legacy_video_ids(root_path, rel_path, info, vector_dir):
             return True
     return False
 
@@ -396,8 +485,21 @@ def migrate_model_storage_root(storage_root, *, progress_callback=None, progress
 def migrate_legacy_video_ids(config=None, progress_callback=None):
     """Migrate all model libraries from legacy video ids to the current format."""
     runtime_config = dict(config or load_config())
-    pending_before = legacy_video_ids_pending(runtime_config)
+    video_id_format = _read_video_id_format(runtime_config)
+    trusted_fast = _trust_fast_video_id_check(runtime_config)
+    if trusted_fast:
+        logger.info("Checking legacy video ids (trusted fast path)")
+        pending_before = _legacy_video_ids_pending_fast(runtime_config, verify_saved_ids=False)
+    elif video_id_format >= VIDEO_ID_FORMAT_VERSION:
+        logger.info("Checking legacy video ids (one-time verify, format_version=%s)", video_id_format)
+        pending_before = legacy_video_ids_pending(runtime_config)
+    else:
+        logger.info("Checking legacy video ids (full scan, format_version=%s)", video_id_format)
+        pending_before = legacy_video_ids_pending(runtime_config)
     if video_id_migration_completed(runtime_config) and not pending_before:
+        if video_id_format >= VIDEO_ID_FORMAT_VERSION and not trusted_fast:
+            _mark_video_id_pending_check_passed(runtime_config)
+            logger.info("Marked legacy video-id fast check as passed after startup verification")
         logger.info("Video id migration skipped: already at format version %s", VIDEO_ID_FORMAT_VERSION)
         healed_roots = 0
         for storage_root in iter_model_asset_storage_roots(runtime_config):
@@ -462,6 +564,7 @@ def migrate_legacy_video_ids(config=None, progress_callback=None):
     patch = {"video_id_migration_stats": stats}
     if not pending_after:
         patch["video_id_format"] = VIDEO_ID_FORMAT_VERSION
+        patch["video_id_pending_check"] = VIDEO_ID_PENDING_CHECK_PASSED
     else:
         logger.warning(
             "Video id migration finished with pending legacy assets; will retry on next startup (migrated=%s failed=%s)",

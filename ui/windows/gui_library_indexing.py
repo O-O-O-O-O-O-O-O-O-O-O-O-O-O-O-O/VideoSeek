@@ -90,6 +90,8 @@ class LibraryIndexingGuiMixin:
             self.show_error_dialog(self.texts["library_remove_failed"], exc)
 
     def start_update_index(self, target_lib=None, rebuild_global_assets=True):
+        if not self._ensure_startup_migration_idle("feature_indexing"):
+            return
         self._start_index_update(
             target_lib=target_lib,
             force_cleanup_missing_files=False,
@@ -97,6 +99,8 @@ class LibraryIndexingGuiMixin:
         )
 
     def rebuild_index_from_vectors(self, target_lib=None):
+        if not self._ensure_startup_migration_idle("feature_indexing"):
+            return
         if not self.show_confirm_dialog(
             self.texts["rebuild_index_vectors_confirm_title"],
             self.texts["rebuild_index_vectors_confirm_body"],

@@ -126,6 +126,8 @@ class RemixGuiMixin:
         worker.stop()
 
     def start_remix_match(self):
+        if not self._ensure_startup_migration_idle("feature_remix"):
+            return
         if not self.check_runtime_resources():
             self.remix_page.lbl_status.setText(self.texts["model_features_disabled"])
             return
