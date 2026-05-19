@@ -159,12 +159,3 @@ python -m unittest discover -s tests -p "test_*.py"
 
 - Links may have been blocked by precheck or recognized as duplicates.
 - Source videos may fail extraction/parsing; inspect build status summary in UI.
-
-## 6) Remix source match (mix-cut → indexed sources)
-
-After local videos are indexed, open **Remix Source** (sidebar). Pick the remix file, tune match parameters if needed, choose **entire library** or **checked videos only**, then **Start match**. Results list source/remix time ranges with preview, locate, export, and **Compare** (side-by-side playback).
-
-- Changing match-only options does **not** require re-indexing the library; run **Start match** again.
-- Remix CLIP vectors are cached under `…/cache/remix_embed` (see `get_remix_embed_cache_dir()`); the UI exposes **Open remix cache folder** on that page.
-
-Full behavior, parameter semantics, and code map: **`docs/remix_source_match.md`**.
