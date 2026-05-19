@@ -45,13 +45,6 @@ Windows VLC runtime layout (project-local):
 
 If `vlc_lib/` is missing or incomplete, search/indexing may still work but preview playback may be unavailable.
 
-## What You Can Do
-
-- Search local video libraries with text or image.
-- Build and search a remote library from online links.
-- Preview matched clips inside the app.
-- **Remix source match:** align a mix-cut video to indexed originals (see `docs/remix_source_match.md`).
-
 ## Upgrading from older builds (≥ 1.0.82)
 
 - First launch runs **schema** and **video index ID** migration (no re-encode: renames files under `vector/` / `index/` and updates `meta.json`).
@@ -77,7 +70,6 @@ Full suite: `python -m unittest discover -s tests -p "test_*.py"` (see `docs/qui
 
 - Detailed setup and troubleshooting: `docs/quickstart.md`
 - Architecture and module map: `docs/architecture.md`
-- Remix / mix-cut source match: `docs/remix_source_match.md`
 
 ## License
 
